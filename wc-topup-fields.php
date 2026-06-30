@@ -19,6 +19,8 @@ $includes = [
     'includes/helper.php',
     'includes/config.php',
     'includes/logger.php',
+    'includes/request.php',
+    'providers/FazerCards/Provider.php',
 
     // Admin
     'admin/menu.php',

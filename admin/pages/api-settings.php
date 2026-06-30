@@ -64,4 +64,46 @@ if (!defined('ABSPATH')) {
 
     </form>
 
+    <hr>
+
+    <h2><?php esc_html_e( 'Test Connection', 'wc-topup-fields' ); ?></h2>
+
+    <p>
+        <?php esc_html_e( 'Save the API settings above before running the connection test.', 'wc-topup-fields' ); ?>
+    </p>
+
+    <p>
+        <button type="button" class="button button-secondary" id="wctf-test-connection">
+            <?php esc_html_e( 'Test Connection', 'wc-topup-fields' ); ?>
+        </button>
+        <span class="spinner" id="wctf-test-connection-spinner" aria-hidden="true"></span>
+    </p>
+
+    <table
+        class="widefat striped"
+        id="wctf-connection-results"
+        style="max-width: 700px;"
+        aria-live="polite"
+        hidden
+    >
+        <tbody>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Connection Status', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-connection-status"></td>
+            </tr>
+            <tr id="wctf-account-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Account Name', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-account-name"></td>
+            </tr>
+            <tr id="wctf-balance-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Balance', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-balance"></td>
+            </tr>
+            <tr id="wctf-error-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Error Message', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-connection-error"></td>
+            </tr>
+        </tbody>
+    </table>
+
 </div>
