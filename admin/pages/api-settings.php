@@ -106,4 +106,54 @@ if (!defined('ABSPATH')) {
         </tbody>
     </table>
 
+    <hr>
+
+    <h2><?php esc_html_e( 'Category Synchronization', 'wc-topup-fields' ); ?></h2>
+
+    <p>
+        <?php esc_html_e( 'Download the latest FazerCards categories and store them locally.', 'wc-topup-fields' ); ?>
+    </p>
+
+    <p>
+        <button type="button" class="button button-secondary" id="wctf-sync-categories">
+            <?php esc_html_e( 'Sync Categories', 'wc-topup-fields' ); ?>
+        </button>
+        <span class="spinner" id="wctf-sync-categories-spinner" aria-hidden="true"></span>
+    </p>
+
+    <table
+        class="widefat striped"
+        id="wctf-category-sync-results"
+        style="max-width: 700px;"
+        aria-live="polite"
+        hidden
+    >
+        <tbody>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Synchronization Status', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-category-sync-status"></td>
+            </tr>
+            <tr id="wctf-category-total-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Total Categories', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-category-total"></td>
+            </tr>
+            <tr id="wctf-category-created-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Created', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-category-created"></td>
+            </tr>
+            <tr id="wctf-category-updated-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Updated', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-category-updated"></td>
+            </tr>
+            <tr id="wctf-category-skipped-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Skipped', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-category-skipped"></td>
+            </tr>
+            <tr id="wctf-category-error-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Error Message', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-category-sync-error"></td>
+            </tr>
+        </tbody>
+    </table>
+
 </div>

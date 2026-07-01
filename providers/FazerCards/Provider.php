@@ -27,6 +27,16 @@ class WCTF_FazerCards_Provider {
         return $this->get('/balance');
     }
 
+    /**
+     * Retrieve FazerCards top-up categories.
+     *
+     * @param array $query Category query parameters.
+     * @return array
+     */
+    public function categories( $query = array() ) {
+        return $this->get( '/topups', $query );
+    }
+
     protected function request($method, $endpoint, $data = array(), $headers = array()) {
         $endpoint = $this->base . '/' . ltrim($endpoint, '/');
 
