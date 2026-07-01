@@ -19,3 +19,14 @@
 
 ### Fixed
 - Admin JavaScript cache issue by using filemtime() for script versioning
+
+
+
+## Build003 Release2 Task2
+
+### Added
+- FazerCards offer synchronization
+- Sync Offers admin button
+- Batched AJAX offer synchronization
+- Local offer storage using wctf_fazercards_offers
+- Progress display for processed categories, total offers, created, updated, skipped, and failed categories

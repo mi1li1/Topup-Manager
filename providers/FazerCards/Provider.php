@@ -37,6 +37,21 @@ class WCTF_FazerCards_Provider {
         return $this->get( '/topups', $query );
     }
 
+    /**
+     * Retrieve FazerCards offers for a category.
+     *
+     * @param string $category_id FazerCards category ID.
+     * @return array
+     */
+    public function offers( $category_id ) {
+        return $this->get(
+            '/topups/offers',
+            array(
+                'category_id' => $category_id,
+            )
+        );
+    }
+
     protected function request($method, $endpoint, $data = array(), $headers = array()) {
         $endpoint = $this->base . '/' . ltrim($endpoint, '/');
 

@@ -156,4 +156,66 @@ if (!defined('ABSPATH')) {
         </tbody>
     </table>
 
+    <hr>
+
+    <h2><?php esc_html_e( 'Offer Synchronization', 'wc-topup-fields' ); ?></h2>
+
+    <p>
+        <?php esc_html_e( 'Download offers for all locally synchronized FazerCards categories.', 'wc-topup-fields' ); ?>
+    </p>
+
+    <p>
+        <button type="button" class="button button-secondary" id="wctf-sync-offers">
+            <?php esc_html_e( 'Sync Offers', 'wc-topup-fields' ); ?>
+        </button>
+        <span class="spinner" id="wctf-sync-offers-spinner" aria-hidden="true"></span>
+    </p>
+
+    <table
+        class="widefat striped"
+        id="wctf-offer-sync-results"
+        style="max-width: 700px;"
+        aria-live="polite"
+        hidden
+    >
+        <tbody>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Synchronization Status', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-sync-status"></td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Processed Categories', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-processed-categories">0</td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Total Categories', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-total-categories">0</td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Total Offers', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-total">0</td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Created', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-created">0</td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Updated', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-updated">0</td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Skipped', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-skipped">0</td>
+            </tr>
+            <tr>
+                <th scope="row"><?php esc_html_e( 'Failed Categories', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-failed-categories">0</td>
+            </tr>
+            <tr id="wctf-offer-error-row" hidden>
+                <th scope="row"><?php esc_html_e( 'Error Message', 'wc-topup-fields' ); ?></th>
+                <td id="wctf-offer-sync-error"></td>
+            </tr>
+        </tbody>
+    </table>
+
 </div>

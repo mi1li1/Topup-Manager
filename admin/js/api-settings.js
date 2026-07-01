@@ -186,4 +186,170 @@
 				$categorySpinner.removeClass('is-active');
 			});
 	});
+
+	var $offerButton = $('#wctf-sync-offers');
+	var $offerSpinner = $('#wctf-sync-offers-spinner');
+	var $offerResults = $('#wctf-offer-sync-results');
+	var $offerStatus = $('#wctf-offer-sync-status');
+	var $offerProcessedCategories = $('#wctf-offer-processed-categories');
+	var $offerTotalCategories = $('#wctf-offer-total-categories');
+	var $offerTotal = $('#wctf-offer-total');
+	var $offerCreated = $('#wctf-offer-created');
+	var $offerUpdated = $('#wctf-offer-updated');
+	var $offerSkipped = $('#wctf-offer-skipped');
+	var $offerFailedCategories = $('#wctf-offer-failed-categories');
+	var $offerErrorRow = $('#wctf-offer-error-row');
+	var $offerError = $('#wctf-offer-sync-error');
+
+	function resetOfferResults() {
+		$offerResults.prop('hidden', false);
+		$offerProcessedCategories.text('0');
+		$offerTotalCategories.text('0');
+		$offerTotal.text('0');
+		$offerCreated.text('0');
+		$offerUpdated.text('0');
+		$offerSkipped.text('0');
+		$offerFailedCategories.text('0');
+		$offerError.text('');
+		$offerErrorRow.prop('hidden', true);
+	}
+
+	function updateOfferProgress(data) {
+		if (undefined !== data.processedCategories) {
+			$offerProcessedCategories.text(data.processedCategories);
+		}
+
+		if (undefined !== data.totalCategories) {
+			$offerTotalCategories.text(data.totalCategories);
+		}
+
+		if (undefined !== data.totalOffers) {
+			$offerTotal.text(data.totalOffers);
+		}
+
+		if (undefined !== data.created) {
+			$offerCreated.text(data.created);
+		}
+
+		if (undefined !== data.updated) {
+			$offerUpdated.text(data.updated);
+		}
+
+		if (undefined !== data.skipped) {
+			$offerSkipped.text(data.skipped);
+		}
+
+		if (undefined !== data.failedCategories) {
+			$offerFailedCategories.text(data.failedCategories);
+		}
+	}
+
+	function finishOfferSync() {
+		$offerButton.prop('disabled', false);
+		$offerSpinner.removeClass('is-active');
+	}
+
+	function showOfferError(message, data) {
+		if (data) {
+			updateOfferProgress(data);
+		}
+
+		$offerStatus.text(wctfApiSettings.messages.offerSyncFailed);
+		$offerError.text(message);
+		$offerErrorRow.prop('hidden', false);
+		finishOfferSync();
+	}
+
+	function getOfferErrorData(xhr) {
+		if (xhr.responseJSON && xhr.responseJSON.data) {
+			return xhr.responseJSON.data;
+		}
+
+		return {};
+	}
+
+	function processOfferBatch(syncToken) {
+		$.ajax({
+			url: wctfApiSettings.ajaxUrl,
+			type: 'POST',
+			dataType: 'json',
+			data: {
+				action: 'wctf_sync_fazercards_offers',
+				nonce: wctfApiSettings.offerNonce,
+				operation: 'continue',
+				syncToken: syncToken
+			}
+		})
+			.done(function (response) {
+				var data = response.data || {};
+
+				if (!response.success) {
+					showOfferError(
+						data.message || wctfApiSettings.messages.offerRequestFailed,
+						data
+					);
+					return;
+				}
+
+				updateOfferProgress(data);
+
+				if (data.complete) {
+					$offerStatus.text(wctfApiSettings.messages.offersSynced);
+					finishOfferSync();
+					return;
+				}
+
+				processOfferBatch(data.syncToken || syncToken);
+			})
+			.fail(function (xhr) {
+				var data = getOfferErrorData(xhr);
+
+				showOfferError(
+					data.message || wctfApiSettings.messages.offerRequestFailed,
+					data
+				);
+			});
+	}
+
+	if ($offerButton.length) {
+		$offerButton.on('click', function () {
+			resetOfferResults();
+			$offerStatus.text(wctfApiSettings.messages.offerSyncing);
+			$offerButton.prop('disabled', true);
+			$offerSpinner.addClass('is-active');
+
+			$.ajax({
+				url: wctfApiSettings.ajaxUrl,
+				type: 'POST',
+				dataType: 'json',
+				data: {
+					action: 'wctf_sync_fazercards_offers',
+					nonce: wctfApiSettings.offerNonce,
+					operation: 'start'
+				}
+			})
+				.done(function (response) {
+					var data = response.data || {};
+
+					if (!response.success || !data.syncToken) {
+						showOfferError(
+							data.message || wctfApiSettings.messages.offerRequestFailed,
+							data
+						);
+						return;
+					}
+
+					updateOfferProgress(data);
+					processOfferBatch(data.syncToken);
+				})
+				.fail(function (xhr) {
+					var data = getOfferErrorData(xhr);
+
+					showOfferError(
+						data.message || wctfApiSettings.messages.offerRequestFailed,
+						data
+					);
+				});
+		});
+	}
 })(jQuery);
