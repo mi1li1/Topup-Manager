@@ -1,107 +1,80 @@
 <?php
 
-if (!defined('ABSPATH')) {
+if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+add_action( 'woocommerce_checkout_billing', 'wctf_render_checkout_customer_fields' );
+
 /**
- * 商品页显示充值输入框
+ * Render required customer fields for eligible simple products at checkout.
  */
-add_action(
-    'woocommerce_before_add_to_cart_button',
-    'wctf_show_topup_fields'
-);
-
-function wctf_show_topup_fields()
-{
-    global $product;
-
-    if (!$product) {
+function wctf_render_checkout_customer_fields() {
+    if ( ! WC()->cart ) {
         return;
     }
 
-    $product_id = $product->get_id();
+    $eligible_items = array();
 
-    // 获取商品类型
-    $type = get_post_meta(
-        $product_id,
-        '_topup_type',
-        true
-    );
+    foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+        $field_keys = wctf_get_cart_item_customer_field_keys( $cart_item );
 
-    // 只有游戏充值和账号充值显示输入框
-    if (!in_array($type, ['game', 'account'])) {
-        return;
-    }
-
-    // 获取字段配置
-    $fields = get_post_meta(
-        $product_id,
-        '_topup_fields',
-        true
-    );
-
-    if (empty($fields)) {
-        return;
-    }
-
-    $fields = array_map(
-        'trim',
-        explode(',', $fields)
-    );
-
-    echo '<div class="wctf-fields">';
-
-    foreach ($fields as $field) {
-
-        echo '<p class="form-row form-row-wide">';
-
-        switch ($field) {
-
-            case 'player_id':
-                $label = '玩家ID';
-                $type_input = 'text';
-                break;
-
-            case 'server':
-                $label = '服务器';
-                $type_input = 'text';
-                break;
-
-            case 'zone_id':
-                $label = '区服ID';
-                $type_input = 'text';
-                break;
-
-            case 'email':
-                $label = '邮箱';
-                $type_input = 'email';
-                break;
-
-            case 'nickname':
-                $label = '角色名';
-                $type_input = 'text';
-                break;
-
-            default:
-                $label = ucfirst($field);
-                $type_input = 'text';
+        if ( empty( $field_keys ) ) {
+            continue;
         }
 
-        echo '<label>';
-        echo esc_html($label);
-        echo ' <span class="required">*</span>';
-        echo '</label>';
-
-        echo '<input
-                type="' . esc_attr($type_input) . '"
-                name="' . esc_attr($field) . '"
-                required
-                class="input-text"
-              >';
-
-        echo '</p>';
+        $eligible_items[ $cart_item_key ] = array(
+            'cart_item'  => $cart_item,
+            'field_keys' => $field_keys,
+        );
     }
 
-    echo '</div>';
+    if ( empty( $eligible_items ) ) {
+        return;
+    }
+
+    ?>
+    <div class="wctf-checkout-fields">
+        <h3><?php esc_html_e( 'Product Information', 'wc-topup-fields' ); ?></h3>
+
+        <?php foreach ( $eligible_items as $cart_item_key => $eligible_item ) : ?>
+            <?php
+            $cart_item  = $eligible_item['cart_item'];
+            $product    = $cart_item['data'];
+            $saved_data = isset( $cart_item['wctf_customer_fields'] ) && is_array( $cart_item['wctf_customer_fields'] )
+                ? $cart_item['wctf_customer_fields']
+                : array();
+            ?>
+            <fieldset class="wctf-checkout-product-fields">
+                <legend><?php echo esc_html( $product->get_name() ); ?></legend>
+
+                <?php foreach ( $eligible_item['field_keys'] as $field_key ) : ?>
+                    <?php
+                    $label       = wctf_get_customer_field_label( $field_key );
+                    $input_type  = wctf_is_email_customer_field( $field_key ) ? 'email' : 'text';
+                    $input_id    = 'wctf_customer_field_' . sanitize_html_class( $cart_item_key . '_' . $field_key );
+                    $field_value = isset( $saved_data[ $field_key ] ) && is_scalar( $saved_data[ $field_key ] )
+                        ? (string) $saved_data[ $field_key ]
+                        : '';
+                    ?>
+                    <p class="form-row form-row-wide">
+                        <label for="<?php echo esc_attr( $input_id ); ?>">
+                            <?php echo esc_html( $label ); ?>
+                            <span class="required" aria-hidden="true">*</span>
+                        </label>
+                        <input
+                            type="<?php echo esc_attr( $input_type ); ?>"
+                            class="input-text"
+                            id="<?php echo esc_attr( $input_id ); ?>"
+                            name="wctf_customer_fields[<?php echo esc_attr( $cart_item_key ); ?>][<?php echo esc_attr( $field_key ); ?>]"
+                            value="<?php echo esc_attr( $field_value ); ?>"
+                            required
+                            aria-required="true"
+                        >
+                    </p>
+                <?php endforeach; ?>
+            </fieldset>
+        <?php endforeach; ?>
+    </div>
+    <?php
 }

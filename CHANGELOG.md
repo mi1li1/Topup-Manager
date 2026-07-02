@@ -52,3 +52,16 @@
 - Local Offer search/select UI on product edit page
 - Product meta mapping for category ID, offer ID, offer name, and price USD
 - Safe server-side validation from local offer cache
+
+
+
+## Build003 Release3 Task1
+
+### Added
+- Checkout customer field collection for FazerCards-bound products
+- Required field validation at checkout
+- Order item meta storage for submitted customer fields
+- Elementor/WoodMart checkout hook compatibility
+
+### Changed
+- Checkout field rendering hook changed to support Elementor/WoodMart WooCommerce Hook layout
