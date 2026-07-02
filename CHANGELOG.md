@@ -30,3 +30,15 @@
 - Batched AJAX offer synchronization
 - Local offer storage using wctf_fazercards_offers
 - Progress display for processed categories, total offers, created, updated, skipped, and failed categories
+
+
+
+## Build003 Release2 Task3
+
+### Added
+- Admin Offer Browser
+- AJAX offer browsing from local cache
+- Search by Offer ID, Offer Name, Category ID, Category Name, and Price USD
+- Category filter
+- Paginated offer table
+- Safe DOM rendering for offer data

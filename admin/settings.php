@@ -12,6 +12,7 @@ add_action( 'admin_enqueue_scripts', 'wctf_enqueue_api_settings_assets' );
 add_action( 'wp_ajax_wctf_test_fazercards_connection', 'wctf_test_fazercards_connection' );
 add_action( 'wp_ajax_wctf_sync_fazercards_categories', 'wctf_sync_fazercards_categories' );
 add_action( 'wp_ajax_wctf_sync_fazercards_offers', 'wctf_sync_fazercards_offers' );
+add_action( 'wp_ajax_wctf_browse_fazercards_offers', 'wctf_browse_fazercards_offers' );
 
 function wctf_register_settings()
 {
@@ -79,6 +80,7 @@ function wctf_enqueue_api_settings_assets( $hook_suffix ) {
             'nonce'         => wp_create_nonce( 'wctf_test_fazercards_connection' ),
             'categoryNonce' => wp_create_nonce( 'wctf_sync_fazercards_categories' ),
             'offerNonce'    => wp_create_nonce( 'wctf_sync_fazercards_offers' ),
+            'browserNonce'  => wp_create_nonce( 'wctf_browse_fazercards_offers' ),
             'messages'      => array(
                 'connected'         => __( 'Connected', 'wc-topup-fields' ),
                 'failed'            => __( 'Connection failed', 'wc-topup-fields' ),
@@ -728,4 +730,129 @@ function wctf_get_offer_sync_progress( $state, $complete ) {
  */
 function wctf_get_offer_sync_transient_key( $sync_token ) {
     return 'wctf_offer_sync_' . $sync_token;
+}
+
+/**
+ * Return a filtered page of locally cached FazerCards offers.
+ */
+function wctf_browse_fazercards_offers() {
+    $nonce_is_valid = check_ajax_referer( 'wctf_browse_fazercards_offers', 'nonce', false );
+
+    if ( false === $nonce_is_valid ) {
+        wp_send_json_error(
+            array(
+                'message' => __( 'Security check failed. Refresh the page and try again.', 'wc-topup-fields' ),
+            ),
+            403
+        );
+    }
+
+    if ( ! current_user_can( 'manage_woocommerce' ) ) {
+        wp_send_json_error(
+            array(
+                'message' => __( 'You are not allowed to browse offers.', 'wc-topup-fields' ),
+            ),
+            403
+        );
+    }
+
+    $page = isset( $_POST['page'] )
+        ? max( 1, absint( wp_unslash( $_POST['page'] ) ) )
+        : 1;
+    $search = isset( $_POST['search'] )
+        ? sanitize_text_field( wp_unslash( $_POST['search'] ) )
+        : '';
+    $category_filter = isset( $_POST['category_id'] )
+        ? sanitize_text_field( wp_unslash( $_POST['category_id'] ) )
+        : '';
+    $per_page   = 50;
+    $offers     = get_option( 'wctf_fazercards_offers', array() );
+    $categories = get_option( 'wctf_fazercards_categories', array() );
+    $matches    = array();
+
+    if ( ! is_array( $offers ) ) {
+        $offers = array();
+    }
+
+    if ( ! is_array( $categories ) ) {
+        $categories = array();
+    }
+
+    foreach ( $offers as $offer_key => $offer ) {
+        if ( ! is_array( $offer ) ) {
+            continue;
+        }
+
+        $offer_id = isset( $offer['offer_id'] ) && is_scalar( $offer['offer_id'] )
+            ? sanitize_text_field( (string) $offer['offer_id'] )
+            : sanitize_text_field( (string) $offer_key );
+        $category_id = isset( $offer['category_id'] ) && is_scalar( $offer['category_id'] )
+            ? sanitize_text_field( (string) $offer['category_id'] )
+            : '';
+        $name = isset( $offer['name'] ) && is_scalar( $offer['name'] )
+            ? sanitize_text_field( (string) $offer['name'] )
+            : '';
+        $price_usd = isset( $offer['price_usd'] ) && is_scalar( $offer['price_usd'] )
+            ? sanitize_text_field( (string) $offer['price_usd'] )
+            : '';
+
+        if ( '' === $offer_id ) {
+            continue;
+        }
+
+        if ( '' !== $category_filter && $category_filter !== $category_id ) {
+            continue;
+        }
+
+        $category_name = '';
+
+        if (
+            isset( $categories[ $category_id ]['name'] )
+            && is_scalar( $categories[ $category_id ]['name'] )
+        ) {
+            $category_name = sanitize_text_field( (string) $categories[ $category_id ]['name'] );
+        }
+
+        if (
+            '' !== $search
+            && false === stripos( $offer_id, $search )
+            && false === stripos( $name, $search )
+            && false === stripos( $category_id, $search )
+            && false === stripos( $category_name, $search )
+            && false === stripos( $price_usd, $search )
+        ) {
+            continue;
+        }
+
+        $matches[] = array(
+            'offer_id'      => $offer_id,
+            'category_id'   => $category_id,
+            'category_name' => $category_name,
+            'name'          => $name,
+            'price_usd'     => $price_usd,
+        );
+    }
+
+    usort(
+        $matches,
+        function ( $first, $second ) {
+            return strnatcasecmp( $first['offer_id'], $second['offer_id'] );
+        }
+    );
+
+    $total       = count( $matches );
+    $total_pages = max( 1, (int) ceil( $total / $per_page ) );
+    $page        = min( $page, $total_pages );
+    $offset      = ( $page - 1 ) * $per_page;
+    $items       = array_slice( $matches, $offset, $per_page );
+
+    wp_send_json_success(
+        array(
+            'items'       => $items,
+            'page'        => $page,
+            'per_page'    => $per_page,
+            'total'       => $total,
+            'total_pages' => $total_pages,
+        )
+    );
 }

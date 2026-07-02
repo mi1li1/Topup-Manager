@@ -352,4 +352,197 @@
 				});
 		});
 	}
+
+	var $offerBrowser = $('#wctf-offer-browser');
+
+	if (!$offerBrowser.length) {
+		return;
+	}
+
+	var $browserSearch = $('#wctf-offer-browser-search');
+	var $browserCategory = $('#wctf-offer-browser-category');
+	var $browserSearchButton = $('#wctf-offer-browser-submit');
+	var $browserResetButton = $('#wctf-offer-browser-reset');
+	var $browserError = $('#wctf-offer-browser-error');
+	var $browserErrorMessage = $('#wctf-offer-browser-error-message');
+	var $browserEmpty = $('#wctf-offer-browser-empty');
+	var $browserTable = $('#wctf-offer-browser-results');
+	var $browserRows = $('#wctf-offer-browser-rows');
+	var $browserTotalResults = $('#wctf-offer-browser-total-results');
+	var $browserPrevious = $('#wctf-offer-browser-previous');
+	var $browserCurrentPage = $('#wctf-offer-browser-current-page');
+	var $browserTotalPages = $('#wctf-offer-browser-total-pages');
+	var $browserNext = $('#wctf-offer-browser-next');
+	var browserCurrentPage = 1;
+	var browserTotalPages = 1;
+	var browserIsLoading = false;
+
+	function getBrowserMessage(fallback) {
+		return fallback;
+	}
+
+	function normalizeBrowserValue(value) {
+		if (undefined === value || null === value) {
+			return '';
+		}
+
+		return String(value);
+	}
+
+	function setBrowserLoading(isLoading) {
+		browserIsLoading = isLoading;
+		$browserSearch.prop('disabled', isLoading);
+		$browserCategory.prop('disabled', isLoading);
+		$browserSearchButton.prop('disabled', isLoading);
+		$browserResetButton.prop('disabled', isLoading);
+		$browserPrevious.prop('disabled', isLoading || browserCurrentPage <= 1);
+		$browserNext.prop('disabled', isLoading || browserCurrentPage >= browserTotalPages);
+		$browserTable.attr('aria-busy', isLoading ? 'true' : 'false');
+	}
+
+	function resetBrowserNoticeState() {
+		$browserError.prop('hidden', true);
+		$browserErrorMessage.text('');
+		$browserEmpty.prop('hidden', true);
+	}
+
+	function showBrowserError(message) {
+		resetBrowserNoticeState();
+		$browserErrorMessage.text(message);
+		$browserError.prop('hidden', false);
+	}
+
+	function updateBrowserPagination(data) {
+		browserCurrentPage = parseInt(data.page, 10) || 1;
+		browserTotalPages = parseInt(data.total_pages, 10) || 1;
+
+		$browserCurrentPage.text(browserCurrentPage);
+		$browserTotalPages.text(browserTotalPages);
+		$browserTotalResults.text(parseInt(data.total, 10) || 0);
+		$browserPrevious.prop('disabled', browserIsLoading || browserCurrentPage <= 1);
+		$browserNext.prop('disabled', browserIsLoading || browserCurrentPage >= browserTotalPages);
+	}
+
+	function createBrowserCell(value) {
+		var cell = document.createElement('td');
+
+		cell.textContent = normalizeBrowserValue(value);
+
+		return cell;
+	}
+
+	function renderBrowserRows(items) {
+		var fragment = document.createDocumentFragment();
+
+		$browserRows.empty();
+
+		items.forEach(function (item) {
+			var row = document.createElement('tr');
+
+			row.appendChild(createBrowserCell(item.offer_id));
+			row.appendChild(createBrowserCell(item.category_id));
+			row.appendChild(createBrowserCell(item.category_name));
+			row.appendChild(createBrowserCell(item.name));
+			row.appendChild(createBrowserCell(item.price_usd));
+			fragment.appendChild(row);
+		});
+
+		$browserRows.append(fragment);
+	}
+
+	function getBrowserErrorData(xhr) {
+		if (xhr.responseJSON && xhr.responseJSON.data) {
+			return xhr.responseJSON.data;
+		}
+
+		return {};
+	}
+
+	function loadOfferBrowserPage(page) {
+		if (browserIsLoading) {
+			return;
+		}
+
+		if (!wctfApiSettings.ajaxUrl || !wctfApiSettings.browserNonce) {
+			showBrowserError(
+				getBrowserMessage('Offer browser AJAX configuration is missing.')
+			);
+			return;
+		}
+
+		resetBrowserNoticeState();
+		setBrowserLoading(true);
+
+		$.ajax({
+			url: wctfApiSettings.ajaxUrl,
+			type: 'POST',
+			dataType: 'json',
+			data: {
+				action: 'wctf_browse_fazercards_offers',
+				nonce: wctfApiSettings.browserNonce,
+				page: page,
+				search: $browserSearch.val(),
+				category_id: $browserCategory.val()
+			}
+		})
+			.done(function (response) {
+				var data = response.data || {};
+				var items = Array.isArray(data.items) ? data.items : [];
+
+				if (!response.success) {
+					showBrowserError(
+						data.message || getBrowserMessage('Unable to load offers.')
+					);
+					return;
+				}
+
+				renderBrowserRows(items);
+				updateBrowserPagination(data);
+
+				if (!items.length) {
+					$browserEmpty.prop('hidden', false);
+				}
+			})
+			.fail(function (xhr) {
+				var data = getBrowserErrorData(xhr);
+
+				showBrowserError(
+					data.message || getBrowserMessage('Unable to load offers.')
+				);
+			})
+			.always(function () {
+				setBrowserLoading(false);
+			});
+	}
+
+	$browserSearchButton.on('click', function () {
+		loadOfferBrowserPage(1);
+	});
+
+	$browserSearch.on('keydown', function (event) {
+		if ('Enter' === event.key) {
+			event.preventDefault();
+			loadOfferBrowserPage(1);
+		}
+	});
+
+	$browserResetButton.on('click', function () {
+		$browserSearch.val('');
+		$browserCategory.val('');
+		loadOfferBrowserPage(1);
+	});
+
+	$browserPrevious.on('click', function () {
+		if (browserCurrentPage > 1) {
+			loadOfferBrowserPage(browserCurrentPage - 1);
+		}
+	});
+
+	$browserNext.on('click', function () {
+		if (browserCurrentPage < browserTotalPages) {
+			loadOfferBrowserPage(browserCurrentPage + 1);
+		}
+	});
+
+	loadOfferBrowserPage(1);
 })(jQuery);
