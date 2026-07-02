@@ -76,3 +76,22 @@ Verified:
 - Local cache browsing works
 - Category filter works
 - Global search works case-insensitively
+
+
+
+## Build003 Release2 Task4
+
+Status: ✅ Completed
+
+Completed:
+- WooCommerce simple product Offer Binding
+- Local Offer search/select UI
+- Saved FazerCards offer mapping meta
+- Product binding nonce and permission validation
+- Server-side validation from local offer cache
+
+Verified:
+- Simple product can bind a local FazerCards Offer
+- Binding persists after saving product
+- Tested Offer ID: 60_uc
+- Tested Category: PUBG Mobile (Reserve)

@@ -42,3 +42,13 @@
 - Category filter
 - Paginated offer table
 - Safe DOM rendering for offer data
+
+
+
+## Build003 Release2 Task4
+
+### Added
+- WooCommerce simple product FazerCards Offer Binding
+- Local Offer search/select UI on product edit page
+- Product meta mapping for category ID, offer ID, offer name, and price USD
+- Safe server-side validation from local offer cache
