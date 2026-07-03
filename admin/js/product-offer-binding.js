@@ -6,6 +6,7 @@
 	var searchButton = document.getElementById( 'wctf-fazer-offer-search-button' );
 	var clearButton = document.getElementById( 'wctf-fazer-offer-clear-button' );
 	var offerIdInput = document.getElementById( '_fazer_offer_id' );
+	var offerKeyInput = document.getElementById( '_wctf_fazer_offer_key' );
 	var status = document.getElementById( 'wctf-fazer-offer-status' );
 	var results = document.getElementById( 'wctf-fazer-offer-results' );
 	var noSelection = document.getElementById( 'wctf-fazer-no-selection' );
@@ -17,7 +18,7 @@
 	var selectedPriceUsd = document.getElementById( 'wctf-fazer-selected-price-usd' );
 	var isLoading = false;
 
-	if ( ! searchInput || ! searchButton || ! clearButton || ! offerIdInput || ! status || ! results ) {
+	if ( ! searchInput || ! searchButton || ! clearButton || ! offerIdInput || ! offerKeyInput || ! status || ! results ) {
 		return;
 	}
 
@@ -58,9 +59,12 @@
 	}
 
 	function updateSelection( offer ) {
-		var hasOffer = offer && '' !== normalizeValue( offer.offer_id );
+		var hasOffer = offer &&
+			'' !== normalizeValue( offer.offer_key ) &&
+			'' !== normalizeValue( offer.offer_id );
 
 		offerIdInput.value = hasOffer ? normalizeValue( offer.offer_id ) : '';
+		offerKeyInput.value = hasOffer ? normalizeValue( offer.offer_key ) : '';
 		noSelection.hidden = hasOffer;
 		selectionDetails.hidden = ! hasOffer;
 		selectedOfferId.textContent = hasOffer ? normalizeValue( offer.offer_id ) : '';

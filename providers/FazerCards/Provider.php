@@ -52,6 +52,75 @@ class WCTF_FazerCards_Provider {
         );
     }
 
+    /**
+     * Create a FazerCards top-up order.
+     *
+     * @param string $category_id    FazerCards category ID.
+     * @param string $offer_id       FazerCards offer ID.
+     * @param array  $fields         Customer fields required by the offer.
+     * @param string $idempotency_key Unique idempotency key for this order.
+     * @return array
+     */
+    public function create_order( $category_id, $offer_id, $fields, $idempotency_key ) {
+        $category_id = is_scalar( $category_id )
+            ? sanitize_text_field( (string) $category_id )
+            : '';
+        $offer_id = is_scalar( $offer_id )
+            ? sanitize_text_field( (string) $offer_id )
+            : '';
+        $idempotency_key = is_scalar( $idempotency_key )
+            ? sanitize_text_field( (string) $idempotency_key )
+            : '';
+
+        if ( '' === $idempotency_key ) {
+            $response = array(
+                'success' => false,
+                'status'  => 0,
+                'message' => 'Idempotency key is required.',
+                'body'    => array(
+                    'ok'    => false,
+                    'error' => 'Idempotency key is required.',
+                ),
+                'headers' => array(),
+                'raw'     => '',
+            );
+
+            $this->last_response = $response;
+
+            return $response;
+        }
+
+        $normalized_fields = array();
+
+        if ( is_array( $fields ) ) {
+            foreach ( $fields as $field_key => $field_value ) {
+                if ( ! is_scalar( $field_value ) ) {
+                    continue;
+                }
+
+                $field_key = sanitize_key( (string) $field_key );
+
+                if ( '' === $field_key ) {
+                    continue;
+                }
+
+                $normalized_fields[ $field_key ] = sanitize_text_field( (string) $field_value );
+            }
+        }
+
+        return $this->post(
+            '/topups/order',
+            array(
+                'category_id' => $category_id,
+                'offer_id'    => $offer_id,
+                'fields'      => $normalized_fields,
+            ),
+            array(
+                'Idempotency-Key' => $idempotency_key,
+            )
+        );
+    }
+
     protected function request($method, $endpoint, $data = array(), $headers = array()) {
         $endpoint = $this->base . '/' . ltrim($endpoint, '/');
 

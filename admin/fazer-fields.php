@@ -22,8 +22,13 @@ function wctf_add_fazer_offer_binding_fields() {
     $category_id   = sanitize_text_field( (string) get_post_meta( $post->ID, '_fazer_category_id', true ) );
     $offer_name    = sanitize_text_field( (string) get_post_meta( $post->ID, '_fazer_offer_name', true ) );
     $price_usd     = sanitize_text_field( (string) get_post_meta( $post->ID, '_fazer_price_usd', true ) );
+    $offer_key     = sanitize_text_field( (string) get_post_meta( $post->ID, '_wctf_fazer_offer_key', true ) );
     $category_name = '';
     $categories    = get_option( 'wctf_fazercards_categories', array() );
+
+    if ( '' === $offer_key ) {
+        $offer_key = wctf_get_fazercards_offer_key( $category_id, $offer_id );
+    }
 
     if (
         is_array( $categories )
@@ -63,6 +68,12 @@ function wctf_add_fazer_offer_binding_fields() {
             id="_fazer_offer_id"
             name="_fazer_offer_id"
             value="<?php echo esc_attr( $offer_id ); ?>"
+        >
+        <input
+            type="hidden"
+            id="_wctf_fazer_offer_key"
+            name="_wctf_fazer_offer_key"
+            value="<?php echo esc_attr( $offer_key ); ?>"
         >
 
         <div id="wctf-fazer-offer-status" role="status" aria-live="polite"></div>
@@ -124,19 +135,32 @@ function wctf_save_fazer_offer_binding( $post_id ) {
         delete_post_meta( $post_id, '_fazer_offer_id' );
         delete_post_meta( $post_id, '_fazer_offer_name' );
         delete_post_meta( $post_id, '_fazer_price_usd' );
+        delete_post_meta( $post_id, '_wctf_fazer_offer_key' );
         return;
+    }
+
+    $offer_key = isset( $_POST['_wctf_fazer_offer_key'] ) && is_string( $_POST['_wctf_fazer_offer_key'] )
+        ? sanitize_text_field( wp_unslash( $_POST['_wctf_fazer_offer_key'] ) )
+        : '';
+
+    if ( '' === $offer_key ) {
+        $existing_category_id = sanitize_text_field(
+            (string) get_post_meta( $post_id, '_fazer_category_id', true )
+        );
+        $offer_key = wctf_get_fazercards_offer_key( $existing_category_id, $offer_id );
     }
 
     $offers = get_option( 'wctf_fazercards_offers', array() );
 
-    if ( ! is_array( $offers ) || ! isset( $offers[ $offer_id ] ) || ! is_array( $offers[ $offer_id ] ) ) {
+    if ( ! is_array( $offers ) || '' === $offer_key ) {
         return;
     }
 
-    $offer = $offers[ $offer_id ];
+    $offer = wctf_find_fazercards_cached_offer( $offers, $offer_key );
 
     if (
-        ! isset( $offer['offer_id'], $offer['category_id'], $offer['name'], $offer['price_usd'] )
+        empty( $offer )
+        || ! isset( $offer['offer_id'], $offer['category_id'], $offer['name'], $offer['price_usd'] )
         || ! is_scalar( $offer['offer_id'] )
         || ! is_scalar( $offer['category_id'] )
         || ! is_scalar( $offer['name'] )
@@ -149,9 +173,11 @@ function wctf_save_fazer_offer_binding( $post_id ) {
     $category_id     = sanitize_text_field( (string) $offer['category_id'] );
     $offer_name      = sanitize_text_field( (string) $offer['name'] );
     $price_usd       = sanitize_text_field( (string) $offer['price_usd'] );
+    $cached_offer_key = wctf_get_fazercards_offer_key( $category_id, $cached_offer_id );
 
     if (
         $offer_id !== $cached_offer_id
+        || $offer_key !== $cached_offer_key
         || '' === $category_id
         || '' === $offer_name
         || '' === $price_usd
@@ -163,6 +189,54 @@ function wctf_save_fazer_offer_binding( $post_id ) {
     update_post_meta( $post_id, '_fazer_offer_id', $cached_offer_id );
     update_post_meta( $post_id, '_fazer_offer_name', $offer_name );
     update_post_meta( $post_id, '_fazer_price_usd', $price_usd );
+    update_post_meta( $post_id, '_wctf_fazer_offer_key', $cached_offer_key );
+}
+
+/**
+ * Find a cached offer by an exact category and offer composite key.
+ *
+ * @param array  $offers    Locally cached offers.
+ * @param string $offer_key Composite offer key.
+ * @return array
+ */
+function wctf_find_fazercards_cached_offer( $offers, $offer_key ) {
+    $key_parts = explode( '::', $offer_key, 2 );
+
+    if ( 2 !== count( $key_parts ) ) {
+        return array();
+    }
+
+    $category_id = sanitize_text_field( $key_parts[0] );
+    $offer_id    = sanitize_text_field( $key_parts[1] );
+    $offer_key   = wctf_get_fazercards_offer_key( $category_id, $offer_id );
+
+    if ( '' === $offer_key ) {
+        return array();
+    }
+
+    $candidates = isset( $offers[ $offer_key ] )
+        ? array( $offers[ $offer_key ] )
+        : $offers;
+
+    foreach ( $candidates as $offer ) {
+        if (
+            ! is_array( $offer )
+            || ! isset( $offer['category_id'], $offer['offer_id'] )
+            || ! is_scalar( $offer['category_id'] )
+            || ! is_scalar( $offer['offer_id'] )
+        ) {
+            continue;
+        }
+
+        $cached_category_id = sanitize_text_field( (string) $offer['category_id'] );
+        $cached_offer_id    = sanitize_text_field( (string) $offer['offer_id'] );
+
+        if ( $category_id === $cached_category_id && $offer_id === $cached_offer_id ) {
+            return $offer;
+        }
+    }
+
+    return array();
 }
 
 /**
