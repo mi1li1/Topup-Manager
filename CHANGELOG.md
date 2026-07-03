@@ -84,3 +84,13 @@
 - FazerCards order item snapshot meta
 - Snapshot-based payload preview
 - Fallback support for old orders without snapshots
+
+
+
+## Build003 Release3 Task4
+
+### Added
+- FazerCards Dry Run meta box in WooCommerce admin orders
+- Manual dry-run action for local payload validation
+- Ready / Not Ready result display
+- Local payload preview for dry-run results
