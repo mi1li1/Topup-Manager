@@ -65,3 +65,13 @@
 
 ### Changed
 - Checkout field rendering hook changed to support Elementor/WoodMart WooCommerce Hook layout
+
+
+
+## Build003 Release3 Task2
+
+### Added
+- FazerCards order payload preview in WooCommerce admin orders
+- Local payload preparation from product binding and order item meta
+- Customer submitted fields included in payload
+- Support for game product type payload preview
