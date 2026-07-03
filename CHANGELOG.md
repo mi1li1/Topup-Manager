@@ -94,3 +94,13 @@
 - Manual dry-run action for local payload validation
 - Ready / Not Ready result display
 - Local payload preview for dry-run results
+
+
+
+## Build003 Release4 Blocker TaskA
+
+### Added
+- FazerCards top-up field schema synchronization
+- Category-level required field storage
+- Product binding auto-fill for top-up fields
+- Schema-authoritative field key handling

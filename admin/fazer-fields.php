@@ -25,6 +25,11 @@ function wctf_add_fazer_offer_binding_fields() {
     $offer_key     = sanitize_text_field( (string) get_post_meta( $post->ID, '_wctf_fazer_offer_key', true ) );
     $category_name = '';
     $categories    = get_option( 'wctf_fazercards_categories', array() );
+    $topup_fields  = get_option( 'wctf_fazercards_topup_fields', array() );
+    $fields_synced = is_array( $topup_fields ) && array_key_exists( $category_id, $topup_fields );
+    $field_schema  = $fields_synced
+        ? wctf_normalize_fazercards_topup_field_schema( $topup_fields[ $category_id ] )
+        : array();
 
     if ( '' === $offer_key ) {
         $offer_key = wctf_get_fazercards_offer_key( $category_id, $offer_id );
@@ -96,6 +101,50 @@ function wctf_add_fazer_offer_binding_fields() {
                 <dt><?php esc_html_e( 'Price USD', 'wc-topup-fields' ); ?></dt>
                 <dd id="wctf-fazer-selected-price-usd"><?php echo esc_html( $price_usd ); ?></dd>
             </dl>
+        </div>
+
+        <div id="wctf-fazer-selected-fields">
+            <h4><?php esc_html_e( 'Required Customer Fields', 'wc-topup-fields' ); ?></h4>
+            <p
+                id="wctf-fazer-fields-message"
+                <?php echo $fields_synced && ! empty( $field_schema ) ? 'hidden' : ''; ?>
+            >
+                <?php
+                if ( ! $fields_synced ) {
+                    esc_html_e( 'Field schema has not been synchronized for this category. Manual product fields will be preserved.', 'wc-topup-fields' );
+                } elseif ( empty( $field_schema ) ) {
+                    esc_html_e( 'This category does not require customer fields.', 'wc-topup-fields' );
+                }
+                ?>
+            </p>
+            <ul id="wctf-fazer-fields-list">
+                <?php foreach ( $field_schema as $field ) : ?>
+                    <li>
+                        <?php
+                        $options_json = wp_json_encode(
+                            $field['options'],
+                            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+                        );
+                        echo esc_html(
+                            sprintf(
+                                /* translators: 1: field key, 2: label, 3: type, 4: required state. */
+                                __( 'Key: %1$s | Label: %2$s | Type: %3$s | Required: %4$s', 'wc-topup-fields' ),
+                                $field['key'],
+                                $field['label'],
+                                $field['type'],
+                                $field['required'] ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' )
+                            )
+                        );
+
+                        if ( ! empty( $field['options'] ) && false !== $options_json ) {
+                            echo ' | ';
+                            echo esc_html__( 'Options:', 'wc-topup-fields' ) . ' ';
+                            echo esc_html( $options_json );
+                        }
+                        ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
         </div>
     </div>
     <?php
@@ -190,6 +239,21 @@ function wctf_save_fazer_offer_binding( $post_id ) {
     update_post_meta( $post_id, '_fazer_offer_name', $offer_name );
     update_post_meta( $post_id, '_fazer_price_usd', $price_usd );
     update_post_meta( $post_id, '_wctf_fazer_offer_key', $cached_offer_key );
+
+    $topup_fields = get_option( 'wctf_fazercards_topup_fields', array() );
+
+    if ( is_array( $topup_fields ) && array_key_exists( $category_id, $topup_fields ) ) {
+        $field_schema        = wctf_normalize_fazercards_topup_field_schema( $topup_fields[ $category_id ] );
+        $required_field_keys = array();
+
+        foreach ( $field_schema as $field_key => $field ) {
+            if ( ! empty( $field['required'] ) ) {
+                $required_field_keys[] = sanitize_key( (string) $field_key );
+            }
+        }
+
+        update_post_meta( $post_id, '_topup_fields', implode( ',', $required_field_keys ) );
+    }
 }
 
 /**

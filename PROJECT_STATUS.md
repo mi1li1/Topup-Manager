@@ -180,3 +180,22 @@ Verified:
 - Payload includes offer ID, category ID, quantity, and customer fields
 - No remote FazerCards API request is made
 - WooCommerce order status is unchanged
+
+
+
+## Build003 Release4 Blocker TaskA
+
+Status: ✅ Completed
+
+Completed:
+- Synced FazerCards top-up field schema from offers endpoint
+- Stored category-level field schema in wctf_fazercards_topup_fields
+- Product binding auto-fills _topup_fields from synced schema
+- Schema-based field key validation
+- Manual field guessing no longer required
+
+Verified:
+- Bigo Live auto-fills field key as bigo_id
+- Manually changed fields are restored to schema-defined required fields after product save
+- Multiple products tested successfully
+- No remote FazerCards order API request is made

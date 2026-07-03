@@ -16,9 +16,11 @@
 	var selectedCategoryName = document.getElementById( 'wctf-fazer-selected-category-name' );
 	var selectedOfferName = document.getElementById( 'wctf-fazer-selected-offer-name' );
 	var selectedPriceUsd = document.getElementById( 'wctf-fazer-selected-price-usd' );
+	var selectedFieldsMessage = document.getElementById( 'wctf-fazer-fields-message' );
+	var selectedFieldsList = document.getElementById( 'wctf-fazer-fields-list' );
 	var isLoading = false;
 
-	if ( ! searchInput || ! searchButton || ! clearButton || ! offerIdInput || ! offerKeyInput || ! status || ! results ) {
+	if ( ! searchInput || ! searchButton || ! clearButton || ! offerIdInput || ! offerKeyInput || ! status || ! results || ! selectedFieldsMessage || ! selectedFieldsList ) {
 		return;
 	}
 
@@ -72,6 +74,62 @@
 		selectedCategoryName.textContent = hasOffer ? normalizeValue( offer.category_name ) : '';
 		selectedOfferName.textContent = hasOffer ? normalizeValue( offer.name ) : '';
 		selectedPriceUsd.textContent = hasOffer ? normalizeValue( offer.price_usd ) : '';
+		renderFieldSchema(
+			hasOffer && offer.fields ? offer.fields : {},
+			hasOffer && true === offer.fields_synced,
+			hasOffer
+		);
+	}
+
+	function renderFieldSchema( schema, isSynced, hasOffer ) {
+		var fieldKeys;
+		var fragment = document.createDocumentFragment();
+
+		while ( selectedFieldsList.firstChild ) {
+			selectedFieldsList.removeChild( selectedFieldsList.firstChild );
+		}
+
+		if ( ! hasOffer ) {
+			selectedFieldsMessage.textContent = 'Select an offer to view its customer fields.';
+			selectedFieldsMessage.hidden = false;
+			return;
+		}
+
+		if ( ! isSynced ) {
+			selectedFieldsMessage.textContent = 'Field schema has not been synchronized for this category. Manual product fields will be preserved.';
+			selectedFieldsMessage.hidden = false;
+			return;
+		}
+
+		fieldKeys = schema && 'object' === typeof schema ? Object.keys( schema ) : [];
+
+		if ( 0 === fieldKeys.length ) {
+			selectedFieldsMessage.textContent = 'This category does not require customer fields.';
+			selectedFieldsMessage.hidden = false;
+			return;
+		}
+
+		selectedFieldsMessage.textContent = '';
+		selectedFieldsMessage.hidden = true;
+
+		fieldKeys.forEach( function ( fieldKey ) {
+			var field = schema[ fieldKey ] && 'object' === typeof schema[ fieldKey ] ? schema[ fieldKey ] : {};
+			var item = document.createElement( 'li' );
+			var text = 'Key: ' + normalizeValue( field.key || fieldKey ) +
+				' | Label: ' + normalizeValue( field.label || fieldKey ) +
+				' | Type: ' + normalizeValue( field.type || 'text' ) +
+				' | Required: ' + ( field.required ? 'Yes' : 'No' );
+			var options = field.options && 'object' === typeof field.options ? field.options : [];
+
+			if ( 0 < Object.keys( options ).length ) {
+				text += ' | Options: ' + JSON.stringify( options );
+			}
+
+			item.textContent = text;
+			fragment.appendChild( item );
+		} );
+
+		selectedFieldsList.appendChild( fragment );
 	}
 
 	function createField( label, value ) {

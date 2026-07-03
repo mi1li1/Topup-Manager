@@ -501,6 +501,7 @@ function wctf_start_fazercards_offer_sync() {
         'category_ids'       => array_keys( $category_ids ),
         'offset'             => 0,
         'offers'             => array(),
+        'topup_fields'       => array(),
         'existing_offer_keys' => $existing_offer_keys,
         'created'            => 0,
         'updated'            => 0,
@@ -568,9 +569,10 @@ function wctf_continue_fazercards_offer_sync() {
     }
 
     if (
-        ! isset( $state['category_ids'], $state['offset'], $state['offers'], $state['existing_offer_keys'] )
+        ! isset( $state['category_ids'], $state['offset'], $state['offers'], $state['topup_fields'], $state['existing_offer_keys'] )
         || ! is_array( $state['category_ids'] )
         || ! is_array( $state['offers'] )
+        || ! is_array( $state['topup_fields'] )
         || ! is_array( $state['existing_offer_keys'] )
     ) {
         delete_transient( $transient_key );
@@ -611,6 +613,12 @@ function wctf_continue_fazercards_offer_sync() {
             $state['failed_categories'][ $category_id ] = __( 'Invalid offers response.', 'wc-topup-fields' );
             continue;
         }
+
+        $state['topup_fields'][ $category_id ] = wctf_normalize_fazercards_topup_field_schema(
+            isset( $body['fields'] ) && is_array( $body['fields'] )
+                ? $body['fields']
+                : array()
+        );
 
         foreach ( $body['offers'] as $offer ) {
             if (
@@ -701,15 +709,34 @@ function wctf_continue_fazercards_offer_sync() {
         wp_send_json_error( $progress, 502 );
     }
 
+    $previous_offers       = get_option( 'wctf_fazercards_offers', array() );
+    $previous_topup_fields = get_option( 'wctf_fazercards_topup_fields', array() );
+
+    update_option( 'wctf_fazercards_topup_fields', $state['topup_fields'], false );
+
+    $saved_topup_fields = get_option( 'wctf_fazercards_topup_fields', null );
+
+    if ( $state['topup_fields'] !== $saved_topup_fields ) {
+        update_option( 'wctf_fazercards_topup_fields', $previous_topup_fields, false );
+        delete_transient( $transient_key );
+
+        $progress            = wctf_get_offer_sync_progress( $state, true );
+        $progress['message'] = __( 'The synchronized top-up field schema could not be stored locally. Existing snapshots were preserved.', 'wc-topup-fields' );
+
+        wp_send_json_error( $progress, 500 );
+    }
+
     update_option( 'wctf_fazercards_offers', $state['offers'], false );
 
     $saved_offers = get_option( 'wctf_fazercards_offers', null );
 
     if ( $state['offers'] !== $saved_offers ) {
+        update_option( 'wctf_fazercards_offers', $previous_offers, false );
+        update_option( 'wctf_fazercards_topup_fields', $previous_topup_fields, false );
         delete_transient( $transient_key );
 
         $progress            = wctf_get_offer_sync_progress( $state, true );
-        $progress['message'] = __( 'The synchronized offers could not be stored locally.', 'wc-topup-fields' );
+        $progress['message'] = __( 'The synchronized offers could not be stored locally. Existing snapshots were restored.', 'wc-topup-fields' );
 
         wp_send_json_error( $progress, 500 );
     }
@@ -777,6 +804,118 @@ function wctf_get_fazercards_offer_key( $category_id, $offer_id ) {
 }
 
 /**
+ * Normalize a category-level FazerCards top-up field schema.
+ *
+ * @param mixed $fields Raw fields returned by FazerCards.
+ * @return array
+ */
+function wctf_normalize_fazercards_topup_field_schema( $fields ) {
+    if ( ! is_array( $fields ) ) {
+        return array();
+    }
+
+    $schema = array();
+
+    foreach ( $fields as $field ) {
+        if ( ! is_array( $field ) || ! isset( $field['key'] ) || ! is_scalar( $field['key'] ) ) {
+            continue;
+        }
+
+        $field_key = sanitize_key( (string) $field['key'] );
+
+        if ( '' === $field_key ) {
+            continue;
+        }
+
+        $label = isset( $field['label'] ) && is_scalar( $field['label'] )
+            ? sanitize_text_field( (string) $field['label'] )
+            : $field_key;
+        $type = isset( $field['type'] ) && is_scalar( $field['type'] )
+            ? sanitize_key( (string) $field['type'] )
+            : 'text';
+
+        if ( '' === $type ) {
+            $type = 'text';
+        }
+
+        $required = true;
+
+        if ( array_key_exists( 'required', $field ) ) {
+            if ( is_bool( $field['required'] ) ) {
+                $required = $field['required'];
+            } elseif ( is_scalar( $field['required'] ) ) {
+                $required = in_array(
+                    strtolower( sanitize_text_field( (string) $field['required'] ) ),
+                    array( '1', 'true', 'yes', 'on' ),
+                    true
+                );
+            }
+        }
+
+        $schema[ $field_key ] = array(
+            'key'      => $field_key,
+            'label'    => $label,
+            'type'     => $type,
+            'required' => $required,
+            'options'  => wctf_normalize_fazercards_topup_field_options(
+                isset( $field['options'] ) ? $field['options'] : array()
+            ),
+        );
+    }
+
+    return $schema;
+}
+
+/**
+ * Normalize optional values from a FazerCards top-up field schema.
+ *
+ * @param mixed $options Raw options.
+ * @return array
+ */
+function wctf_normalize_fazercards_topup_field_options( $options ) {
+    if ( ! is_array( $options ) ) {
+        return array();
+    }
+
+    $normalized = array();
+
+    foreach ( $options as $option_key => $option ) {
+        if ( is_scalar( $option ) ) {
+            $option = sanitize_text_field( (string) $option );
+
+            if ( is_string( $option_key ) ) {
+                $option_key                = sanitize_text_field( $option_key );
+                $normalized[ $option_key ] = $option;
+            } else {
+                $normalized[] = $option;
+            }
+            continue;
+        }
+
+        if ( ! is_array( $option ) ) {
+            continue;
+        }
+
+        $normalized_option = array();
+
+        foreach ( $option as $value_key => $value ) {
+            if ( ! is_scalar( $value ) ) {
+                continue;
+            }
+
+            $value_key = is_string( $value_key ) ? sanitize_key( $value_key ) : absint( $value_key );
+            $normalized_option[ $value_key ] = sanitize_text_field( (string) $value );
+        }
+
+        if ( ! empty( $normalized_option ) ) {
+            $normalized[] = $normalized_option;
+        }
+    }
+
+    return $normalized;
+}
+
+/**
  * Return a filtered page of locally cached FazerCards offers.
  */
 function wctf_browse_fazercards_offers() {
@@ -812,6 +951,7 @@ function wctf_browse_fazercards_offers() {
     $per_page   = 50;
     $offers     = get_option( 'wctf_fazercards_offers', array() );
     $categories = get_option( 'wctf_fazercards_categories', array() );
+    $topup_fields = get_option( 'wctf_fazercards_topup_fields', array() );
     $matches    = array();
 
     if ( ! is_array( $offers ) ) {
@@ -820,6 +960,10 @@ function wctf_browse_fazercards_offers() {
 
     if ( ! is_array( $categories ) ) {
         $categories = array();
+    }
+
+    if ( ! is_array( $topup_fields ) ) {
+        $topup_fields = array();
     }
 
     foreach ( $offers as $offer ) {
@@ -877,6 +1021,10 @@ function wctf_browse_fazercards_offers() {
             'category_name' => $category_name,
             'name'          => $name,
             'price_usd'     => $price_usd,
+            'fields_synced' => array_key_exists( $category_id, $topup_fields ),
+            'fields'        => array_key_exists( $category_id, $topup_fields )
+                ? wctf_normalize_fazercards_topup_field_schema( $topup_fields[ $category_id ] )
+                : array(),
         );
     }
 
