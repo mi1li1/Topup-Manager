@@ -5,6 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 add_action( 'woocommerce_checkout_create_order_line_item', 'wctf_save_order_item_customer_fields', 10, 4 );
+add_action( 'woocommerce_checkout_create_order_line_item', 'wctf_snapshot_fazercards_order_item_binding', 20, 4 );
 add_action( 'woocommerce_after_order_itemmeta', 'wctf_display_fazercards_order_item_payload', 10, 3 );
 
 /**
@@ -46,6 +47,53 @@ function wctf_save_order_item_customer_fields( $item, $cart_item_key, $values, $
 }
 
 /**
+ * Snapshot FazerCards product binding data onto an eligible order line item.
+ *
+ * @param WC_Order_Item_Product $item          Order line item.
+ * @param string                $cart_item_key Cart item key.
+ * @param array                 $values        Cart item values.
+ * @param WC_Order              $order         WooCommerce order.
+ */
+function wctf_snapshot_fazercards_order_item_binding( $item, $cart_item_key, $values, $order ) {
+    unset( $cart_item_key, $order );
+
+    if (
+        ! $item instanceof WC_Order_Item_Product
+        || ! is_array( $values )
+        || ! isset( $values['data'] )
+        || ! $values['data'] instanceof WC_Product
+    ) {
+        return;
+    }
+
+    $product = $values['data'];
+
+    if ( ! in_array( $product->get_type(), array( 'simple', 'game' ), true ) ) {
+        return;
+    }
+
+    $product_id = absint( $product->get_id() );
+    $offer_id   = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_offer_id', true ) );
+
+    if ( '' === $offer_id ) {
+        return;
+    }
+
+    $snapshot = array(
+        '_wctf_fazer_category_id'        => wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_category_id', true ) ),
+        '_wctf_fazer_offer_id'           => $offer_id,
+        '_wctf_fazer_offer_name'         => wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_offer_name', true ) ),
+        '_wctf_fazer_price_usd'          => wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_price_usd', true ) ),
+        '_wctf_fazer_product_id'         => $product_id,
+        '_wctf_fazer_snapshot_created_at' => wctf_normalize_fazercards_payload_value( current_time( 'mysql', true ) ),
+    );
+
+    foreach ( $snapshot as $meta_key => $meta_value ) {
+        $item->add_meta_data( $meta_key, $meta_value, true );
+    }
+}
+
+/**
  * Prepare a local FazerCards payload preview for an order line item.
  *
  * @param WC_Order              $order   WooCommerce order.
@@ -65,38 +113,66 @@ function wctf_prepare_fazercards_order_item_payload( $order, $item, $item_id ) {
         return $result;
     }
 
-    $product = $item->get_product();
+    $snapshot_keys = array(
+        '_wctf_fazer_category_id',
+        '_wctf_fazer_offer_id',
+        '_wctf_fazer_offer_name',
+        '_wctf_fazer_price_usd',
+        '_wctf_fazer_product_id',
+        '_wctf_fazer_snapshot_created_at',
+    );
+    $has_snapshot = false;
 
-    if ( ! $product ) {
-        $result['warnings'][] = __( 'The product no longer exists.', 'wc-topup-fields' );
-        return $result;
+    foreach ( $snapshot_keys as $snapshot_key ) {
+        if ( $item->meta_exists( $snapshot_key ) ) {
+            $has_snapshot = true;
+            break;
+        }
     }
 
-    if ( ! $product->is_type( 'simple' ) ) {
-        $result['warnings'][] = __( 'Only simple products are supported.', 'wc-topup-fields' );
-        return $result;
+    if ( $has_snapshot ) {
+        $product_id         = absint( $item->get_meta( '_wctf_fazer_product_id', true ) );
+        $category_id        = wctf_normalize_fazercards_payload_value( $item->get_meta( '_wctf_fazer_category_id', true ) );
+        $offer_id           = wctf_normalize_fazercards_payload_value( $item->get_meta( '_wctf_fazer_offer_id', true ) );
+        $offer_name         = wctf_normalize_fazercards_payload_value( $item->get_meta( '_wctf_fazer_offer_name', true ) );
+        $price_usd          = wctf_normalize_fazercards_payload_value( $item->get_meta( '_wctf_fazer_price_usd', true ) );
+        $snapshot_created_at = wctf_normalize_fazercards_payload_value( $item->get_meta( '_wctf_fazer_snapshot_created_at', true ) );
+    } else {
+        $product = $item->get_product();
+
+        if ( ! $product ) {
+            $result['warnings'][] = __( 'The product no longer exists.', 'wc-topup-fields' );
+            return $result;
+        }
+
+        if ( ! in_array( $product->get_type(), array( 'simple', 'game' ), true ) ) {
+            $result['warnings'][] = __( 'Only simple and game products are supported.', 'wc-topup-fields' );
+            return $result;
+        }
+
+        $product_id         = absint( $product->get_id() );
+        $category_id        = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_category_id', true ) );
+        $offer_id           = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_offer_id', true ) );
+        $offer_name         = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_offer_name', true ) );
+        $price_usd          = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_price_usd', true ) );
+        $snapshot_created_at = '';
+
+        if ( '' === $offer_id ) {
+            $result['warnings'][] = __( 'The product is not bound to a FazerCards offer.', 'wc-topup-fields' );
+            return $result;
+        }
     }
-
-    $product_id = absint( $product->get_id() );
-    $offer_id   = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_offer_id', true ) );
-
-    if ( '' === $offer_id ) {
-        $result['warnings'][] = __( 'The product is not bound to a FazerCards offer.', 'wc-topup-fields' );
-        return $result;
-    }
-
-    $category_id = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_category_id', true ) );
-    $offer_name  = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_offer_name', true ) );
-    $price_usd   = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_price_usd', true ) );
 
     $binding_fields = array(
+        'product_id'  => $product_id,
         'category_id' => $category_id,
+        'offer_id'    => $offer_id,
         'offer_name'  => $offer_name,
         'price_usd'   => $price_usd,
     );
 
     foreach ( $binding_fields as $binding_key => $binding_value ) {
-        if ( '' !== $binding_value ) {
+        if ( ( 'product_id' === $binding_key && 0 !== $binding_value ) || ( 'product_id' !== $binding_key && '' !== $binding_value ) ) {
             continue;
         }
 
@@ -105,6 +181,10 @@ function wctf_prepare_fazercards_order_item_payload( $order, $item, $item_id ) {
             __( 'Missing product binding data: %s.', 'wc-topup-fields' ),
             $binding_key
         );
+    }
+
+    if ( $has_snapshot && '' === $snapshot_created_at ) {
+        $result['warnings'][] = __( 'Missing snapshot data: snapshot_created_at.', 'wc-topup-fields' );
     }
 
     $customer_fields = array();

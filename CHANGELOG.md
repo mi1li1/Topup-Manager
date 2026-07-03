@@ -75,3 +75,12 @@
 - Local payload preparation from product binding and order item meta
 - Customer submitted fields included in payload
 - Support for game product type payload preview
+
+
+
+## Build003 Release3 Task3
+
+### Added
+- FazerCards order item snapshot meta
+- Snapshot-based payload preview
+- Fallback support for old orders without snapshots

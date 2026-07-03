@@ -137,3 +137,23 @@ Verified:
 - Tested customer fields: player_id, server
 - No remote FazerCards API request is made
 - WooCommerce order status is unchanged
+
+
+
+## Build003 Release3 Task3
+
+Status: ✅ Completed
+
+Completed:
+- FazerCards product binding snapshot stored on WooCommerce order items
+- Snapshot meta stored during order creation
+- Payload preview now prefers order item snapshot data
+- Old orders without snapshot data still fall back to product meta
+- Supports simple and game product types
+
+Verified:
+- New orders store FazerCards snapshot data
+- Snapshot includes category ID, offer ID, offer name, price USD, product ID, and created time
+- Payload preview remains correct
+- No remote FazerCards API request is made
+- WooCommerce order status is unchanged
