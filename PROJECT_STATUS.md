@@ -247,3 +247,27 @@ Verified:
 - Private admin order note is created
 - WooCommerce order list shows FazerCards status
 - WooCommerce order status is unchanged
+
+
+
+## Build003 Release4 Task2
+
+Status: ✅ Completed and verified
+
+Completed:
+- Hardened FazerCards submission result display
+- Added private admin order notes for successful and failed submissions
+- Improved per-item submission status display
+- Added remote order ID, remote status, submitted time, last error and technical details
+- Added duplicate submission blocked message
+- Added WooCommerce order list FazerCards status column
+- Added classic and HPOS order list support
+
+Verified:
+- Successful real submission created private admin order note
+- Remote order ID: ord-111829
+- Remote status: created
+- Real Bigo Live account received recharge successfully
+- Submitted item hides Submit to FazerCards (REAL)
+- WooCommerce order list shows FazerCards submission status
+- WooCommerce order status remains unchanged

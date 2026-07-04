@@ -134,3 +134,17 @@
 - Duplicate submission visibility
 - Failed submission retry visibility
 - Remote response and idempotency key technical details
+
+
+
+## Build003 Release4 Task2
+
+### Added
+- Private admin order notes for FazerCards submission results
+- Improved FazerCards submission result display
+- WooCommerce order list FazerCards status column
+- Submitted / Failed / Not submitted / Mixed / Not applicable status display
+
+### Verified
+- Real Bigo Live submission created a private admin order note
+- Real Bigo Live recharge arrived successfully
