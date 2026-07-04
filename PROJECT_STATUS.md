@@ -225,3 +225,25 @@ Verified:
 - Submit button disappears after successful submission
 - No automatic submission is enabled
 - WooCommerce order status is unchanged
+
+
+
+## Build003 Release4 Task2
+
+Status: ✅ Completed
+
+Completed:
+- Hardened FazerCards submission result display
+- Added private admin order notes for successful and failed submissions
+- Improved submission meta box display
+- Added remote order ID, remote status, submitted time, error and technical details display
+- Added duplicate submission blocked message
+- Added WooCommerce order list FazerCards status column
+- Added classic and HPOS order list support
+
+Verified:
+- Submitted orders show remote order ID and status
+- Submit button remains hidden after successful submission
+- Private admin order note is created
+- WooCommerce order list shows FazerCards status
+- WooCommerce order status is unchanged
