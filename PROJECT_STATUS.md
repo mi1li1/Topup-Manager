@@ -199,3 +199,29 @@ Verified:
 - Manually changed fields are restored to schema-defined required fields after product save
 - Multiple products tested successfully
 - No remote FazerCards order API request is made
+
+
+
+## Build003 Release4 Task1
+
+Status: ✅ Completed
+
+Completed:
+- Manual FazerCards order submission from WooCommerce admin
+- Provider::create_order() integration
+- Real FazerCards order creation
+- Idempotency key protection
+- Per-order-item submission status storage
+- Remote order ID and status display
+- Duplicate submission prevention after success
+- Real submission confirmation checkbox
+
+Verified:
+- Bigo Live 5 Diamonds real order submitted successfully
+- Field schema auto-filled as bigo_id
+- Remote order ID: ord-106211
+- Remote status: created
+- Real Bigo Live account received recharge successfully
+- Submit button disappears after successful submission
+- No automatic submission is enabled
+- WooCommerce order status is unchanged

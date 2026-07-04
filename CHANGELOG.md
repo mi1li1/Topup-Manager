@@ -104,3 +104,18 @@
 - Category-level required field storage
 - Product binding auto-fill for top-up fields
 - Schema-authoritative field key handling
+
+
+
+## Build003 Release4 Task1
+
+### Added
+- Manual Submit to FazerCards action in WooCommerce admin orders
+- Real FazerCards top-up order creation
+- Idempotency-key based duplicate protection
+- Submission status and remote response storage
+- Remote order ID and status display
+- Real submission confirmation checkbox
+
+### Verified
+- Bigo Live real top-up order completed successfully
