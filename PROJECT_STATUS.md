@@ -271,3 +271,31 @@ Verified:
 - Submitted item hides Submit to FazerCards (REAL)
 - WooCommerce order list shows FazerCards submission status
 - WooCommerce order status remains unchanged
+
+
+
+## Build003 Release5 Task1
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added global automatic FazerCards submission setting
+- Default auto submission setting is disabled
+- Added automatic submission on WooCommerce processing/completed status
+- Added paid-date validation before auto submission
+- Added per-order-item atomic lock
+- Added submitting status
+- Reused stable idempotency key
+- Shared manual and automatic submission flow
+- Automatic failed submissions do not retry automatically
+- Manual retry remains available
+- Private admin order notes for automatic success/failure
+
+Verified:
+- Default disabled state does not auto-submit
+- Enabled state auto-submits after payment completion
+- Real Bigo Live account received automatic recharge successfully
+- Automatic submission does not duplicate after status changes
+- Remote order ID and remote status are stored
+- WooCommerce order status remains unchanged
+- Manual Submit to FazerCards remains compatible

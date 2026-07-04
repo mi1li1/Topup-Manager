@@ -10,6 +10,8 @@ add_action( 'woocommerce_after_order_itemmeta', 'wctf_display_fazercards_order_i
 add_action( 'add_meta_boxes', 'wctf_register_fazercards_dry_run_meta_box' );
 add_action( 'admin_post_wctf_fazercards_dry_run', 'wctf_handle_fazercards_dry_run' );
 add_action( 'admin_post_wctf_fazercards_submit_order_item', 'wctf_handle_fazercards_order_item_submission' );
+add_action( 'woocommerce_order_status_processing', 'wctf_handle_fazercards_auto_submission', 20, 3 );
+add_action( 'woocommerce_order_status_completed', 'wctf_handle_fazercards_auto_submission', 20, 3 );
 add_filter( 'manage_edit-shop_order_columns', 'wctf_add_fazercards_order_list_column', 20 );
 add_action( 'manage_shop_order_posts_custom_column', 'wctf_render_fazercards_order_list_column_classic', 20, 2 );
 add_filter( 'manage_woocommerce_page_wc-orders_columns', 'wctf_add_fazercards_order_list_column', 20 );
@@ -455,7 +457,7 @@ function wctf_render_fazercards_dry_run_meta_box( $post_or_order_object ) {
             ? sanitize_key( (string) $order_item->get_meta( '_wctf_fazer_submission_status', true ) )
             : '';
 
-        if ( '' === $submission_status ) {
+        if ( ! in_array( $submission_status, array( 'submitting', 'submitted', 'failed' ), true ) ) {
             $submission_status = 'not_submitted';
         }
 
@@ -494,6 +496,7 @@ function wctf_render_fazercards_dry_run_meta_box( $post_or_order_object ) {
 
         $can_submit = $is_ready
             && $order_item instanceof WC_Order_Item_Product
+            && 'submitting' !== $submission_status
             && 'submitted' !== $submission_status;
 
         ?>
@@ -771,7 +774,7 @@ function wctf_render_fazercards_submission_status_summary( $order ) {
 
         $status = sanitize_key( (string) $item->get_meta( '_wctf_fazer_submission_status', true ) );
 
-        if ( ! in_array( $status, array( 'submitted', 'failed' ), true ) ) {
+        if ( ! in_array( $status, array( 'submitting', 'submitted', 'failed' ), true ) ) {
             $status = 'not_submitted';
         }
 
@@ -849,6 +852,11 @@ function wctf_render_fazercards_submission_status_summary( $order ) {
                 <div class="notice notice-success inline">
                     <p><strong><?php esc_html_e( 'Submitted', 'wc-topup-fields' ); ?></strong></p>
                     <p><?php esc_html_e( 'Already submitted — duplicate submission blocked.', 'wc-topup-fields' ); ?></p>
+                </div>
+            <?php elseif ( 'submitting' === $item_data['status'] ) : ?>
+                <div class="notice notice-info inline">
+                    <p><strong><?php esc_html_e( 'Submitting', 'wc-topup-fields' ); ?></strong></p>
+                    <p><?php esc_html_e( 'A FazerCards submission is currently in progress for this item.', 'wc-topup-fields' ); ?></p>
                 </div>
             <?php elseif ( 'failed' === $item_data['status'] ) : ?>
                 <div class="notice notice-error inline">
@@ -968,6 +976,7 @@ function wctf_get_fazercards_submission_status_label( $status ) {
     $labels = array(
         'not_applicable' => __( 'Not applicable', 'wc-topup-fields' ),
         'not_submitted'  => __( 'Not submitted', 'wc-topup-fields' ),
+        'submitting'     => __( 'Submitting', 'wc-topup-fields' ),
         'submitted'      => __( 'Submitted', 'wc-topup-fields' ),
         'failed'         => __( 'Failed', 'wc-topup-fields' ),
         'mixed'          => __( 'Mixed', 'wc-topup-fields' ),
@@ -1044,50 +1053,69 @@ function wctf_handle_fazercards_order_item_submission() {
         );
     }
 
+    $result = wctf_submit_fazercards_order_item(
+        $order,
+        $item,
+        $item_id,
+        'manual',
+        true
+    );
+
+    wctf_finish_fazercards_submission_action( $order, $result );
+}
+
+/**
+ * Submit one validated FazerCards order item through the shared real-submit path.
+ *
+ * @param WC_Order              $order              WooCommerce order.
+ * @param WC_Order_Item_Product $item               Order line item.
+ * @param int                   $item_id            Order item ID.
+ * @param string                $trigger            Submission trigger identifier.
+ * @param bool                  $allow_failed_retry Whether a failed item may be retried.
+ * @return array
+ */
+function wctf_submit_fazercards_order_item( $order, $item, $item_id, $trigger, $allow_failed_retry = false ) {
+    $result = array(
+        'success'   => false,
+        'attempted' => false,
+        'message'   => __( 'The FazerCards order was not submitted.', 'wc-topup-fields' ),
+    );
+
+    if ( ! $order instanceof WC_Order || ! $item instanceof WC_Order_Item_Product ) {
+        $result['message'] = __( 'A valid WooCommerce order item is required.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    $order_id          = absint( $order->get_id() );
+    $item_id           = absint( $item_id );
+    $trigger           = sanitize_key( $trigger );
     $submission_status = sanitize_key( (string) $item->get_meta( '_wctf_fazer_submission_status', true ) );
 
     if ( 'submitted' === $submission_status ) {
-        wctf_finish_fazercards_submission_action(
-            $order,
-            array(
-                'success' => false,
-                'message' => __( 'This order item was already submitted to FazerCards.', 'wc-topup-fields' ),
-            )
-        );
+        $result['message'] = __( 'This order item was already submitted to FazerCards.', 'wc-topup-fields' );
+        return $result;
     }
 
-    $prepared = wctf_prepare_fazercards_order_item_payload( $order, $item, $item_id );
-    $warnings = isset( $prepared['warnings'] ) && is_array( $prepared['warnings'] )
-        ? array_filter( $prepared['warnings'] )
-        : array();
-    $payload  = isset( $prepared['payload'] ) && is_array( $prepared['payload'] )
+    if ( 'failed' === $submission_status && ! $allow_failed_retry ) {
+        $result['message'] = __( 'Automatic retry is disabled for failed FazerCards submissions.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    $prepared  = wctf_prepare_fazercards_order_item_payload( $order, $item, $item_id );
+    $readiness = wctf_get_fazercards_submission_readiness( $prepared );
+    $payload   = isset( $prepared['payload'] ) && is_array( $prepared['payload'] )
         ? $prepared['payload']
         : array();
 
-    if ( empty( $prepared['success'] ) || ! empty( $warnings ) ) {
-        wctf_finish_fazercards_submission_action(
-            $order,
-            array(
-                'success' => false,
-                'message' => __( 'The payload is not ready. Run the Dry Run and resolve all warnings.', 'wc-topup-fields' ),
-            )
-        );
+    if ( empty( $readiness['ready'] ) ) {
+        $result['message'] = __( 'The payload is not ready. Run the Dry Run and resolve all warnings.', 'wc-topup-fields' );
+        return $result;
     }
 
-    if ( ! isset( $payload['quantity'] ) || 1 !== (int) $payload['quantity'] ) {
-        wctf_finish_fazercards_submission_action(
-            $order,
-            array(
-                'success' => false,
-                'message' => __( 'Only order items with quantity exactly 1 can be submitted.', 'wc-topup-fields' ),
-            )
-        );
-    }
-
-    $category_id    = isset( $payload['category_id'] ) && is_scalar( $payload['category_id'] )
+    $category_id     = isset( $payload['category_id'] ) && is_scalar( $payload['category_id'] )
         ? sanitize_text_field( (string) $payload['category_id'] )
         : '';
-    $offer_id       = isset( $payload['offer_id'] ) && is_scalar( $payload['offer_id'] )
+    $offer_id        = isset( $payload['offer_id'] ) && is_scalar( $payload['offer_id'] )
         ? sanitize_text_field( (string) $payload['offer_id'] )
         : '';
     $customer_fields = isset( $payload['customer_fields'] ) && is_array( $payload['customer_fields'] )
@@ -1095,128 +1123,366 @@ function wctf_handle_fazercards_order_item_submission() {
         : array();
 
     if ( '' === $category_id || '' === $offer_id || empty( $customer_fields ) ) {
-        wctf_finish_fazercards_submission_action(
-            $order,
-            array(
-                'success' => false,
-                'message' => __( 'Category ID, offer ID, and customer fields are required.', 'wc-topup-fields' ),
-            )
-        );
+        $result['message'] = __( 'Category ID, offer ID, and customer fields are required.', 'wc-topup-fields' );
+        return $result;
     }
 
     $config = function_exists( 'wctf_config' ) ? wctf_config() : array();
 
     if ( empty( $config['api_url'] ) || empty( $config['api_key'] ) ) {
-        wctf_finish_fazercards_submission_action(
-            $order,
-            array(
-                'success' => false,
-                'message' => __( 'Save the FazerCards API URL and API key before submitting.', 'wc-topup-fields' ),
-            )
-        );
+        $result['message'] = __( 'Save the FazerCards API URL and API key before submitting.', 'wc-topup-fields' );
+        return $result;
     }
 
+    $idempotency_key = wctf_get_or_create_fazercards_idempotency_key( $order, $item, $item_id );
+
+    if ( '' === $idempotency_key ) {
+        $result['message'] = __( 'A stable FazerCards idempotency key could not be created.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    $lock_token = wctf_acquire_fazercards_submission_lock( $order_id, $item_id );
+
+    if ( '' === $lock_token ) {
+        $result['message'] = __( 'A FazerCards submission is already in progress for this item.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    $item->update_meta_data( '_wctf_fazer_submission_status', 'submitting' );
+    $item->save_meta_data();
+
+    try {
+        $provider            = new WCTF_FazerCards_Provider();
+        $result['attempted'] = true;
+        $response            = $provider->create_order(
+            $category_id,
+            $offer_id,
+            $customer_fields,
+            $idempotency_key
+        );
+        $response_summary    = wctf_build_fazercards_response_summary( $response );
+        $response_body       = isset( $response['body'] ) && is_array( $response['body'] )
+            ? $response['body']
+            : array();
+        $remote_order        = isset( $response_body['order'] ) && is_array( $response_body['order'] )
+            ? $response_body['order']
+            : array();
+        $remote_order_id     = isset( $remote_order['id'] ) && is_scalar( $remote_order['id'] )
+            ? sanitize_text_field( (string) $remote_order['id'] )
+            : '';
+        $remote_status       = isset( $remote_order['status'] ) && is_scalar( $remote_order['status'] )
+            ? sanitize_text_field( (string) $remote_order['status'] )
+            : '';
+
+        $item->update_meta_data( '_wctf_fazer_last_response', $response_summary );
+
+        if ( $provider->isSuccess( $response ) && '' !== $remote_order_id ) {
+            $item->update_meta_data( '_wctf_fazer_submission_status', 'submitted' );
+            $item->update_meta_data( '_wctf_fazer_remote_order_id', $remote_order_id );
+            $item->update_meta_data( '_wctf_fazer_remote_status', $remote_status );
+            $item->update_meta_data(
+                '_wctf_fazer_submitted_at',
+                wctf_normalize_fazercards_payload_value( current_time( 'mysql', true ) )
+            );
+            $item->delete_meta_data( '_wctf_fazer_last_error' );
+            $item->save_meta_data();
+
+            wctf_add_fazercards_submission_order_note(
+                $order,
+                $item_id,
+                $trigger,
+                true,
+                $remote_order_id,
+                $remote_status,
+                ''
+            );
+
+            $result['success'] = true;
+            $result['message'] = sprintf(
+                /* translators: %s: FazerCards remote order ID. */
+                __( 'FazerCards order submitted successfully: %s.', 'wc-topup-fields' ),
+                $remote_order_id
+            );
+
+            return $result;
+        }
+
+        $error = sanitize_text_field( $provider->getError( $response ) );
+
+        if ( $provider->isSuccess( $response ) && '' === $remote_order_id ) {
+            $error = __( 'FazerCards returned success without a remote order ID.', 'wc-topup-fields' );
+        } elseif ( '' === $error ) {
+            $error = __( 'The FazerCards order submission failed.', 'wc-topup-fields' );
+        }
+
+        $item->update_meta_data( '_wctf_fazer_submission_status', 'failed' );
+        $item->update_meta_data( '_wctf_fazer_last_error', sanitize_text_field( $error ) );
+        $item->save_meta_data();
+
+        wctf_add_fazercards_submission_order_note(
+            $order,
+            $item_id,
+            $trigger,
+            false,
+            '',
+            '',
+            $error
+        );
+
+        $result['message'] = sanitize_text_field( $error );
+        return $result;
+    } catch ( Throwable $throwable ) {
+        $error = sanitize_text_field( $throwable->getMessage() );
+
+        if ( '' === $error ) {
+            $error = __( 'The FazerCards order submission failed unexpectedly.', 'wc-topup-fields' );
+        }
+
+        $item->update_meta_data( '_wctf_fazer_submission_status', 'failed' );
+        $item->update_meta_data( '_wctf_fazer_last_error', $error );
+        $item->update_meta_data(
+            '_wctf_fazer_last_response',
+            wctf_build_fazercards_response_summary( array() )
+        );
+        $item->save_meta_data();
+
+        if ( $result['attempted'] ) {
+            wctf_add_fazercards_submission_order_note(
+                $order,
+                $item_id,
+                $trigger,
+                false,
+                '',
+                '',
+                $error
+            );
+        }
+
+        $result['message'] = $error;
+        return $result;
+    } finally {
+        wctf_release_fazercards_submission_lock( $order_id, $item_id, $lock_token );
+    }
+}
+
+/**
+ * Automatically submit eligible FazerCards items when an order enters a paid status.
+ *
+ * @param int      $order_id         WooCommerce order ID.
+ * @param WC_Order $order            WooCommerce order.
+ * @param array    $status_transition Status transition data.
+ */
+function wctf_handle_fazercards_auto_submission( $order_id, $order = null, $status_transition = array() ) {
+    unset( $status_transition );
+
+    if ( 'yes' !== get_option( 'wctf_fazercards_auto_submit_enabled', 'no' ) ) {
+        return;
+    }
+
+    if ( ! $order instanceof WC_Order ) {
+        $order = wc_get_order( absint( $order_id ) );
+    }
+
+    if (
+        ! $order instanceof WC_Order
+        || ! $order->has_status( array( 'processing', 'completed' ) )
+        || ! $order->get_date_paid()
+    ) {
+        return;
+    }
+
+    $config = function_exists( 'wctf_config' ) ? wctf_config() : array();
+
+    if ( empty( $config['api_url'] ) || empty( $config['api_key'] ) ) {
+        return;
+    }
+
+    $trigger = sanitize_key( current_filter() );
+
+    foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
+        if (
+            ! $item instanceof WC_Order_Item_Product
+            || ! wctf_has_fazercards_order_item_snapshot( $item )
+        ) {
+            continue;
+        }
+
+        $status = sanitize_key( (string) $item->get_meta( '_wctf_fazer_submission_status', true ) );
+
+        if ( in_array( $status, array( 'submitting', 'submitted', 'failed' ), true ) ) {
+            continue;
+        }
+
+        wctf_submit_fazercards_order_item(
+            $order,
+            $item,
+            $item_id,
+            $trigger,
+            false
+        );
+    }
+}
+
+/**
+ * Check whether an order item contains the binding snapshot required for auto submission.
+ *
+ * @param WC_Order_Item_Product $item Order line item.
+ * @return bool
+ */
+function wctf_has_fazercards_order_item_snapshot( $item ) {
+    return $item instanceof WC_Order_Item_Product
+        && $item->meta_exists( '_wctf_fazer_offer_id' )
+        && $item->meta_exists( '_wctf_fazer_snapshot_created_at' );
+}
+
+/**
+ * Get or create the stable idempotency key for an order item.
+ *
+ * @param WC_Order              $order   WooCommerce order.
+ * @param WC_Order_Item_Product $item    Order line item.
+ * @param int                   $item_id Order item ID.
+ * @return string
+ */
+function wctf_get_or_create_fazercards_idempotency_key( $order, $item, $item_id ) {
     $idempotency_key = wctf_normalize_fazercards_payload_value(
         $item->get_meta( '_wctf_fazer_idempotency_key', true )
     );
 
-    if ( '' === $idempotency_key ) {
-        $site_hash       = substr( hash( 'sha256', untrailingslashit( home_url( '/' ) ) ), 0, 12 );
-        $idempotency_key = 'wctf_' . $site_hash . '_' . $order_id . '_' . $item_id;
-
-        $item->update_meta_data( '_wctf_fazer_idempotency_key', $idempotency_key );
-        $item->save_meta_data();
+    if ( '' !== $idempotency_key ) {
+        return $idempotency_key;
     }
 
-    $provider = new WCTF_FazerCards_Provider();
-    $response = $provider->create_order(
-        $category_id,
-        $offer_id,
-        $customer_fields,
-        $idempotency_key
-    );
-    $response_summary = wctf_build_fazercards_response_summary( $response );
-    $response_body    = isset( $response['body'] ) && is_array( $response['body'] )
-        ? $response['body']
-        : array();
-    $remote_order     = isset( $response_body['order'] ) && is_array( $response_body['order'] )
-        ? $response_body['order']
-        : array();
-    $remote_order_id  = isset( $remote_order['id'] ) && is_scalar( $remote_order['id'] )
-        ? sanitize_text_field( (string) $remote_order['id'] )
-        : '';
-    $remote_status    = isset( $remote_order['status'] ) && is_scalar( $remote_order['status'] )
-        ? sanitize_text_field( (string) $remote_order['status'] )
-        : '';
+    $site_hash       = substr( hash( 'sha256', untrailingslashit( home_url( '/' ) ) ), 0, 12 );
+    $idempotency_key = 'wctf_' . $site_hash . '_' . absint( $order->get_id() ) . '_' . absint( $item_id );
 
-    $item->update_meta_data( '_wctf_fazer_last_response', $response_summary );
-
-    if ( $provider->isSuccess( $response ) && '' !== $remote_order_id ) {
-        $item->update_meta_data( '_wctf_fazer_submission_status', 'submitted' );
-        $item->update_meta_data( '_wctf_fazer_remote_order_id', $remote_order_id );
-        $item->update_meta_data( '_wctf_fazer_remote_status', $remote_status );
-        $item->update_meta_data(
-            '_wctf_fazer_submitted_at',
-            wctf_normalize_fazercards_payload_value( current_time( 'mysql', true ) )
-        );
-        $item->delete_meta_data( '_wctf_fazer_last_error' );
-        $item->save_meta_data();
-
-        $order->add_order_note(
-            sprintf(
-                /* translators: 1: order item ID, 2: remote order ID, 3: remote status. */
-                __( "FazerCards submission succeeded for item #%1\$d.\nRemote order: %2\$s\nRemote status: %3\$s", 'wc-topup-fields' ),
-                $item_id,
-                $remote_order_id,
-                $remote_status
-            ),
-            false,
-            true
-        );
-
-        wctf_finish_fazercards_submission_action(
-            $order,
-            array(
-                'success' => true,
-                'message' => sprintf(
-                    /* translators: %s: FazerCards remote order ID. */
-                    __( 'FazerCards order submitted successfully: %s.', 'wc-topup-fields' ),
-                    $remote_order_id
-                ),
-            )
-        );
-    }
-
-    $error = sanitize_text_field( $provider->getError( $response ) );
-
-    if ( $provider->isSuccess( $response ) && '' === $remote_order_id ) {
-        $error = __( 'FazerCards returned success without a remote order ID.', 'wc-topup-fields' );
-    } elseif ( '' === $error ) {
-        $error = __( 'The FazerCards order submission failed.', 'wc-topup-fields' );
-    }
-
-    $item->update_meta_data( '_wctf_fazer_submission_status', 'failed' );
-    $item->update_meta_data( '_wctf_fazer_last_error', sanitize_text_field( $error ) );
+    $item->update_meta_data( '_wctf_fazer_idempotency_key', $idempotency_key );
     $item->save_meta_data();
 
-    $order->add_order_note(
-        sprintf(
-            /* translators: 1: order item ID, 2: submission error. */
-            __( "FazerCards submission failed for item #%1\$d.\nError: %2\$s", 'wc-topup-fields' ),
-            $item_id,
-            sanitize_text_field( $error )
-        ),
-        false,
-        true
+    return $idempotency_key;
+}
+
+/**
+ * Acquire a five-minute atomic per-item submission lock.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @param int $item_id  Order item ID.
+ * @return string Lock token, or an empty string when held elsewhere.
+ */
+function wctf_acquire_fazercards_submission_lock( $order_id, $item_id ) {
+    $lock_key = wctf_get_fazercards_submission_lock_key( $order_id, $item_id );
+    $now      = time();
+    $token    = wp_generate_uuid4();
+    $lock     = array(
+        'created' => $now,
+        'token'   => $token,
     );
 
-    wctf_finish_fazercards_submission_action(
-        $order,
-        array(
-            'success' => false,
-            'message' => $error,
-        )
-    );
+    if ( add_option( $lock_key, $lock, '', 'no' ) ) {
+        return $token;
+    }
+
+    $existing         = get_option( $lock_key, array() );
+    $existing_created = is_array( $existing ) && isset( $existing['created'] )
+        ? absint( $existing['created'] )
+        : 0;
+
+    if ( 0 !== $existing_created && $existing_created > ( $now - ( 5 * MINUTE_IN_SECONDS ) ) ) {
+        return '';
+    }
+
+    delete_option( $lock_key );
+
+    /*
+     * Do not acquire on the same request that clears a stale lock. This keeps
+     * concurrent stale-lock cleanup from allowing two callers through.
+     */
+    return '';
+}
+
+/**
+ * Release an owned per-item submission lock.
+ *
+ * @param int    $order_id WooCommerce order ID.
+ * @param int    $item_id  Order item ID.
+ * @param string $token    Lock ownership token.
+ */
+function wctf_release_fazercards_submission_lock( $order_id, $item_id, $token ) {
+    $lock_key = wctf_get_fazercards_submission_lock_key( $order_id, $item_id );
+    $existing = get_option( $lock_key, array() );
+
+    if (
+        is_array( $existing )
+        && isset( $existing['token'] )
+        && hash_equals( (string) $existing['token'], (string) $token )
+    ) {
+        delete_option( $lock_key );
+    }
+}
+
+/**
+ * Build the per-item submission lock option name.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @param int $item_id  Order item ID.
+ * @return string
+ */
+function wctf_get_fazercards_submission_lock_key( $order_id, $item_id ) {
+    return 'wctf_fazer_submit_lock_' . absint( $order_id ) . '_' . absint( $item_id );
+}
+
+/**
+ * Add a private order note after an actual FazerCards API attempt.
+ *
+ * @param WC_Order $order           WooCommerce order.
+ * @param int      $item_id         Order item ID.
+ * @param string   $trigger         Submission trigger.
+ * @param bool     $success         Whether submission succeeded.
+ * @param string   $remote_order_id Remote order ID.
+ * @param string   $remote_status   Remote order status.
+ * @param string   $error           Sanitized failure message.
+ */
+function wctf_add_fazercards_submission_order_note( $order, $item_id, $trigger, $success, $remote_order_id, $remote_status, $error ) {
+    $trigger         = sanitize_key( $trigger );
+    $remote_order_id = sanitize_text_field( $remote_order_id );
+    $remote_status   = sanitize_text_field( $remote_status );
+    $error           = sanitize_text_field( $error );
+    $is_auto         = 'manual' !== $trigger;
+
+    if ( $success ) {
+        $note = $is_auto
+            ? sprintf(
+                /* translators: 1: item ID, 2: remote order ID, 3: remote status, 4: trigger. */
+                __( "FazerCards auto submission succeeded for item #%1\$d.\nRemote order: %2\$s\nRemote status: %3\$s\nTrigger: %4\$s", 'wc-topup-fields' ),
+                absint( $item_id ),
+                $remote_order_id,
+                $remote_status,
+                $trigger
+            )
+            : sprintf(
+                /* translators: 1: item ID, 2: remote order ID, 3: remote status. */
+                __( "FazerCards submission succeeded for item #%1\$d.\nRemote order: %2\$s\nRemote status: %3\$s", 'wc-topup-fields' ),
+                absint( $item_id ),
+                $remote_order_id,
+                $remote_status
+            );
+    } else {
+        $note = $is_auto
+            ? sprintf(
+                /* translators: 1: item ID, 2: error, 3: trigger. */
+                __( "FazerCards auto submission failed for item #%1\$d.\nError: %2\$s\nTrigger: %3\$s", 'wc-topup-fields' ),
+                absint( $item_id ),
+                $error,
+                $trigger
+            )
+            : sprintf(
+                /* translators: 1: item ID, 2: error. */
+                __( "FazerCards submission failed for item #%1\$d.\nError: %2\$s", 'wc-topup-fields' ),
+                absint( $item_id ),
+                $error
+            );
+    }
+
+    $order->add_order_note( $note, false, true );
 }
 
 /**
@@ -1396,7 +1662,7 @@ function wctf_get_fazercards_order_submission_state( $order ) {
 
         $status = sanitize_key( (string) $item->get_meta( '_wctf_fazer_submission_status', true ) );
 
-        if ( ! in_array( $status, array( 'submitted', 'failed' ), true ) ) {
+        if ( ! in_array( $status, array( 'submitting', 'submitted', 'failed' ), true ) ) {
             $status = 'not_submitted';
         }
 

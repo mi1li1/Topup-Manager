@@ -148,3 +148,18 @@
 ### Verified
 - Real Bigo Live submission created a private admin order note
 - Real Bigo Live recharge arrived successfully
+
+
+
+## Build003 Release5 Task1
+
+### Added
+- Optional automatic FazerCards submission after paid WooCommerce orders enter Processing or Completed
+- Global auto-submit enable/disable setting
+- Per-item submitting status and atomic lock
+- Shared manual/automatic submission handling
+- Automatic submission admin notes
+
+### Verified
+- Automatic Bigo Live real top-up completed successfully
+- Duplicate prevention works after order status changes

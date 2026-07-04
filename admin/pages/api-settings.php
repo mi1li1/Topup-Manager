@@ -102,6 +102,44 @@ usort(
                 </td>
             </tr>
 
+            <tr>
+                <th scope="row">
+                    <?php esc_html_e( 'Automatic FazerCards Submission', 'wc-topup-fields' ); ?>
+                </th>
+                <td>
+                    <label for="wctf-fazercards-auto-submit-enabled">
+                        <input
+                            type="hidden"
+                            name="wctf_fazercards_auto_submit_enabled"
+                            value="no"
+                        >
+                        <input
+                            type="checkbox"
+                            id="wctf-fazercards-auto-submit-enabled"
+                            name="wctf_fazercards_auto_submit_enabled"
+                            value="yes"
+                            <?php checked( 'yes', get_option( 'wctf_fazercards_auto_submit_enabled', 'no' ) ); ?>
+                        >
+                        <?php
+                        esc_html_e(
+                            'Enable real automatic FazerCards order submission when paid WooCommerce orders enter Processing or Completed.',
+                            'wc-topup-fields'
+                        );
+                        ?>
+                    </label>
+                    <p class="description">
+                        <strong>
+                            <?php
+                            esc_html_e(
+                                'Warning: enabling this setting can create real FazerCards orders and use your FazerCards balance.',
+                                'wc-topup-fields'
+                            );
+                            ?>
+                        </strong>
+                    </p>
+                </td>
+            </tr>
+
         </table>
 
         <?php submit_button('保存设置'); ?>
