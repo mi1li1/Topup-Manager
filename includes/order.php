@@ -83,6 +83,9 @@ function wctf_snapshot_fazercards_order_item_binding( $item, $cart_item_key, $va
 
     $product_id = absint( $product->get_id() );
     $offer_id   = wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_offer_id', true ) );
+    $auto_submit = 'yes' === sanitize_key( (string) get_post_meta( $product_id, '_wctf_fazer_auto_submit_enabled', true ) )
+        ? 'yes'
+        : 'no';
 
     if ( '' === $offer_id ) {
         return;
@@ -95,6 +98,7 @@ function wctf_snapshot_fazercards_order_item_binding( $item, $cart_item_key, $va
         '_wctf_fazer_price_usd'          => wctf_normalize_fazercards_payload_value( get_post_meta( $product_id, '_fazer_price_usd', true ) ),
         '_wctf_fazer_product_id'         => $product_id,
         '_wctf_fazer_snapshot_created_at' => wctf_normalize_fazercards_payload_value( current_time( 'mysql', true ) ),
+        '_wctf_fazer_auto_submit_enabled_snapshot' => $auto_submit,
     );
 
     foreach ( $snapshot as $meta_key => $meta_value ) {
@@ -794,6 +798,7 @@ function wctf_render_fazercards_submission_status_summary( $order ) {
             'last_response' => wctf_format_fazercards_last_response(
                 $item->get_meta( '_wctf_fazer_last_response', true )
             ),
+            'auto_submit'   => wctf_is_fazercards_order_item_auto_submit_enabled( $item ),
         );
     }
 
@@ -828,6 +833,10 @@ function wctf_render_fazercards_submission_status_summary( $order ) {
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Payload Readiness', 'wc-topup-fields' ); ?></th>
                         <td><?php echo esc_html( $item_data['ready'] ? __( 'Ready', 'wc-topup-fields' ) : __( 'Not Ready', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Auto-submit enabled for this item', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $item_data['auto_submit'] ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
                     </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Remote Order ID', 'wc-topup-fields' ); ?></th>
@@ -1303,6 +1312,7 @@ function wctf_handle_fazercards_auto_submission( $order_id, $order = null, $stat
         if (
             ! $item instanceof WC_Order_Item_Product
             || ! wctf_has_fazercards_order_item_snapshot( $item )
+            || ! wctf_is_fazercards_order_item_auto_submit_enabled( $item )
         ) {
             continue;
         }
@@ -1333,6 +1343,21 @@ function wctf_has_fazercards_order_item_snapshot( $item ) {
     return $item instanceof WC_Order_Item_Product
         && $item->meta_exists( '_wctf_fazer_offer_id' )
         && $item->meta_exists( '_wctf_fazer_snapshot_created_at' );
+}
+
+/**
+ * Determine whether automatic submission was enabled when an order item was created.
+ *
+ * Missing snapshots are deliberately treated as disabled for old orders.
+ *
+ * @param WC_Order_Item_Product $item Order line item.
+ * @return bool
+ */
+function wctf_is_fazercards_order_item_auto_submit_enabled( $item ) {
+    return $item instanceof WC_Order_Item_Product
+        && 'yes' === sanitize_key(
+            (string) $item->get_meta( '_wctf_fazer_auto_submit_enabled_snapshot', true )
+        );
 }
 
 /**

@@ -299,3 +299,27 @@ Verified:
 - Remote order ID and remote status are stored
 - WooCommerce order status remains unchanged
 - Manual Submit to FazerCards remains compatible
+
+
+
+## Build003 Release5 Task3
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added product-level auto-submit control
+- Added product meta _wctf_fazer_auto_submit_enabled
+- Added order-item snapshot _wctf_fazer_auto_submit_enabled_snapshot
+- Product-level auto-submit defaults to no
+- Automatic submission now requires both global and product-level enablement
+- Old orders without snapshot are treated as disabled
+- Manual REAL submission remains available even when product-level auto-submit is disabled
+- Order meta box shows auto-submit eligibility per item
+
+Verified:
+- Product checkbox saves yes/no correctly
+- Global yes + product no does not auto-submit
+- Global yes + product yes auto-submits successfully
+- Manual submission remains available when product-level auto-submit is disabled
+- Mobile Legends (Global) real top-up completed successfully
+- WooCommerce order status remains unchanged

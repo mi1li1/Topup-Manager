@@ -23,6 +23,9 @@ function wctf_add_fazer_offer_binding_fields() {
     $offer_name    = sanitize_text_field( (string) get_post_meta( $post->ID, '_fazer_offer_name', true ) );
     $price_usd     = sanitize_text_field( (string) get_post_meta( $post->ID, '_fazer_price_usd', true ) );
     $offer_key     = sanitize_text_field( (string) get_post_meta( $post->ID, '_wctf_fazer_offer_key', true ) );
+    $auto_submit   = 'yes' === sanitize_key( (string) get_post_meta( $post->ID, '_wctf_fazer_auto_submit_enabled', true ) )
+        ? 'yes'
+        : 'no';
     $category_name = '';
     $categories    = get_option( 'wctf_fazercards_categories', array() );
     $topup_fields  = get_option( 'wctf_fazercards_topup_fields', array() );
@@ -103,6 +106,30 @@ function wctf_add_fazer_offer_binding_fields() {
             </dl>
         </div>
 
+        <p class="form-field">
+            <label for="wctf-fazer-auto-submit-enabled">
+                <?php esc_html_e( 'Automatic Submission', 'wc-topup-fields' ); ?>
+            </label>
+            <input
+                type="hidden"
+                name="_wctf_fazer_auto_submit_enabled"
+                value="no"
+            >
+            <input
+                type="checkbox"
+                id="wctf-fazer-auto-submit-enabled"
+                name="_wctf_fazer_auto_submit_enabled"
+                value="yes"
+                <?php checked( 'yes', $auto_submit ); ?>
+            >
+            <span>
+                <?php esc_html_e( 'Enable automatic FazerCards submission for this product.', 'wc-topup-fields' ); ?>
+            </span>
+            <span class="description">
+                <?php esc_html_e( 'This product will be automatically submitted to FazerCards after paid orders enter Processing or Completed, only when global auto-submit is also enabled.', 'wc-topup-fields' ); ?>
+            </span>
+        </p>
+
         <div id="wctf-fazer-selected-fields">
             <h4><?php esc_html_e( 'Required Customer Fields', 'wc-topup-fields' ); ?></h4>
             <p
@@ -178,6 +205,11 @@ function wctf_save_fazer_offer_binding( $post_id ) {
     }
 
     $offer_id = sanitize_text_field( wp_unslash( $_POST['_fazer_offer_id'] ) );
+    $auto_submit = (
+        isset( $_POST['_wctf_fazer_auto_submit_enabled'] )
+        && is_string( $_POST['_wctf_fazer_auto_submit_enabled'] )
+        && 'yes' === sanitize_key( wp_unslash( $_POST['_wctf_fazer_auto_submit_enabled'] ) )
+    ) ? 'yes' : 'no';
 
     if ( '' === $offer_id ) {
         delete_post_meta( $post_id, '_fazer_category_id' );
@@ -185,7 +217,12 @@ function wctf_save_fazer_offer_binding( $post_id ) {
         delete_post_meta( $post_id, '_fazer_offer_name' );
         delete_post_meta( $post_id, '_fazer_price_usd' );
         delete_post_meta( $post_id, '_wctf_fazer_offer_key' );
+        update_post_meta( $post_id, '_wctf_fazer_auto_submit_enabled', 'no' );
         return;
+    }
+
+    if ( 'no' === $auto_submit ) {
+        update_post_meta( $post_id, '_wctf_fazer_auto_submit_enabled', 'no' );
     }
 
     $offer_key = isset( $_POST['_wctf_fazer_offer_key'] ) && is_string( $_POST['_wctf_fazer_offer_key'] )
@@ -239,6 +276,7 @@ function wctf_save_fazer_offer_binding( $post_id ) {
     update_post_meta( $post_id, '_fazer_offer_name', $offer_name );
     update_post_meta( $post_id, '_fazer_price_usd', $price_usd );
     update_post_meta( $post_id, '_wctf_fazer_offer_key', $cached_offer_key );
+    update_post_meta( $post_id, '_wctf_fazer_auto_submit_enabled', $auto_submit );
 
     $topup_fields = get_option( 'wctf_fazercards_topup_fields', array() );
 

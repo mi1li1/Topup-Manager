@@ -163,3 +163,19 @@
 ### Verified
 - Automatic Bigo Live real top-up completed successfully
 - Duplicate prevention works after order status changes
+
+
+
+## Build003 Release5 Task3
+
+### Added
+- Product-level automatic FazerCards submission control
+- Per-order-item auto-submit eligibility snapshot
+- Admin order display for auto-submit eligibility
+
+### Improved
+- Automatic submission now only runs for whitelisted products
+- Safer rollout for untested FazerCards products
+
+### Verified
+- Mobile Legends (Global) real automatic top-up completed successfully
