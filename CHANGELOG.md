@@ -1,3 +1,33 @@
+## 1.1.0 — 2026-07-08
+
+### Added
+- Automatic FazerCards submission after paid orders enter Processing or Completed
+- Global automatic submission setting
+- Product-level automatic submission whitelist
+- Order-item auto-submit eligibility snapshot
+- Admin email alerts for automatic submission failures
+- Configurable comma-separated failure alert recipients
+- WordPress admin email fallback
+
+### Safety
+- Stable per-order-item idempotency keys
+- Atomic submission locks
+- Duplicate successful submissions are blocked
+- Failed automatic submissions are not retried automatically
+- Manual REAL Submit remains available
+- Customer top-up values and credentials are excluded from alert emails
+- WooCommerce order status is never changed by the submission flow
+
+### Verified
+- Bigo Live real automatic top-up succeeded
+- Mobile Legends Global real automatic top-up succeeded
+
+### Scope
+- Task2 Auto Submit Readiness Audit was cancelled and is not included
+- Task5 was intentionally skipped
+
+
+
 ## Build003 Release1
 
 ### Added

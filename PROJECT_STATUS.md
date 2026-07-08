@@ -1,3 +1,38 @@
+## Build003 Release5 Final
+
+Status: Stable and verified
+Version: 1.1.0
+Date: 2026-07-08
+
+Completed:
+- Automatic FazerCards submission for paid Processing/Completed orders
+- Global automatic submission control
+- Product-level automatic submission whitelist
+- Order-item eligibility snapshots
+- Per-item locking and idempotency protection
+- Automatic failure admin email alerts
+- Configurable failure alert recipients
+- Manual REAL Submit compatibility
+- Classic and HPOS admin visibility
+
+Verified:
+- Bigo Live real automatic top-up succeeded
+- Mobile Legends Global real automatic top-up succeeded
+- Duplicate submission protection works
+- Failed automatic submissions do not retry automatically
+- Manual retry remains available
+- Failure alerts contain no credentials or customer top-up values
+- WooCommerce order status remains unchanged
+- FazerCards API payload remains unchanged
+
+Cancelled:
+- Release5 Task2 Auto Submit Readiness Audit
+
+Skipped:
+- Release5 Task5 intentionally skipped
+
+
+
 ## Build003 Release1
 
 Status: ✅ Completed
