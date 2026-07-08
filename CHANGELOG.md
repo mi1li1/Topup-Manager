@@ -179,3 +179,22 @@
 
 ### Verified
 - Mobile Legends (Global) real automatic top-up completed successfully
+
+
+
+## Build003 Release5 Task4
+
+### Added
+- Admin email alert for automatic FazerCards submission failures
+- Duplicate prevention for failure alert emails
+- Auto failure alert meta tracking
+- Auto failure alert status display in the order meta box
+
+### Improved
+- Admin visibility when automatic submission fails
+- Safer operations for paid orders that fail to submit to FazerCards
+
+### Verified
+- Automatic submission failure sends an admin email alert
+- WooCommerce order status is not changed by the failure alert system
+- Sensitive data is not included in failure alert emails

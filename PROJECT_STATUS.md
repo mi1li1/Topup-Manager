@@ -323,3 +323,32 @@ Verified:
 - Manual submission remains available when product-level auto-submit is disabled
 - Mobile Legends (Global) real top-up completed successfully
 - WooCommerce order status remains unchanged
+
+
+
+## Build003 Release5 Task4
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added admin email alerts for automatic FazerCards submission failures
+- Alerts are sent only after a real automatic API failure
+- Alerts are sent for processing/completed auto-submit triggers only
+- Added duplicate alert prevention
+- Added auto failure alert meta
+- Added alert status display in the WooCommerce order meta box
+- Later successful submission clears alert meta
+- Manual submission failures do not trigger automatic failure alerts
+
+Meta added:
+- _wctf_fazer_auto_failure_alert_sent
+- _wctf_fazer_auto_failure_alerted_at
+- _wctf_fazer_auto_failure_trigger
+
+Verified:
+- Automatic failure test succeeded
+- Admin email received failure alert
+- Failed order status and error were stored correctly
+- WooCommerce order status remains unchanged
+- No API credentials or customer top-up field values are included in the alert email
+- Manual retry remains available

@@ -799,6 +799,8 @@ function wctf_render_fazercards_submission_status_summary( $order ) {
                 $item->get_meta( '_wctf_fazer_last_response', true )
             ),
             'auto_submit'   => wctf_is_fazercards_order_item_auto_submit_enabled( $item ),
+            'auto_failure_trigger' => sanitize_key( (string) $item->get_meta( '_wctf_fazer_auto_failure_trigger', true ) ),
+            'auto_failure_alert_sent' => 'yes' === sanitize_key( (string) $item->get_meta( '_wctf_fazer_auto_failure_alert_sent', true ) ),
         );
     }
 
@@ -854,6 +856,12 @@ function wctf_render_fazercards_submission_status_summary( $order ) {
                         <th scope="row"><?php esc_html_e( 'Last Error', 'wc-topup-fields' ); ?></th>
                         <td><?php echo esc_html( $item_data['last_error'] ); ?></td>
                     </tr>
+                    <?php if ( 'failed' === $item_data['status'] && '' !== $item_data['auto_failure_trigger'] ) : ?>
+                        <tr>
+                            <th scope="row"><?php esc_html_e( 'Auto failure alert sent', 'wc-topup-fields' ); ?></th>
+                            <td><?php echo esc_html( $item_data['auto_failure_alert_sent'] ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
+                        </tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
 
@@ -1194,6 +1202,7 @@ function wctf_submit_fazercards_order_item( $order, $item, $item_id, $trigger, $
                 wctf_normalize_fazercards_payload_value( current_time( 'mysql', true ) )
             );
             $item->delete_meta_data( '_wctf_fazer_last_error' );
+            wctf_clear_fazercards_auto_failure_alert( $item );
             $item->save_meta_data();
 
             wctf_add_fazercards_submission_order_note(
@@ -1238,6 +1247,17 @@ function wctf_submit_fazercards_order_item( $order, $item, $item_id, $trigger, $
             $error
         );
 
+        wctf_maybe_send_fazercards_auto_failure_alert(
+            $order,
+            $item,
+            $item_id,
+            $category_id,
+            $offer_id,
+            $error,
+            $trigger,
+            $customer_fields
+        );
+
         $result['message'] = sanitize_text_field( $error );
         return $result;
     } catch ( Throwable $throwable ) {
@@ -1264,6 +1284,17 @@ function wctf_submit_fazercards_order_item( $order, $item, $item_id, $trigger, $
                 '',
                 '',
                 $error
+            );
+
+            wctf_maybe_send_fazercards_auto_failure_alert(
+                $order,
+                $item,
+                $item_id,
+                $category_id,
+                $offer_id,
+                $error,
+                $trigger,
+                $customer_fields
             );
         }
 
@@ -1508,6 +1539,149 @@ function wctf_add_fazercards_submission_order_note( $order, $item_id, $trigger, 
     }
 
     $order->add_order_note( $note, false, true );
+}
+
+/**
+ * Determine whether a submission trigger is an approved automatic trigger.
+ *
+ * @param string $trigger Submission trigger.
+ * @return bool
+ */
+function wctf_is_fazercards_automatic_submission_trigger( $trigger ) {
+    return in_array(
+        sanitize_key( $trigger ),
+        array( 'woocommerce_order_status_processing', 'woocommerce_order_status_completed' ),
+        true
+    );
+}
+
+/**
+ * Send one admin-only alert after an actual automatic FazerCards failure.
+ *
+ * @param WC_Order              $order       WooCommerce order.
+ * @param WC_Order_Item_Product $item        Order line item.
+ * @param int                   $item_id     Order item ID.
+ * @param string                $category_id FazerCards category ID.
+ * @param string                $offer_id    FazerCards offer ID.
+ * @param string                $error       Sanitized failure message.
+ * @param string                $trigger     Submission trigger.
+ * @param array                 $customer_fields Sensitive values to redact from the error.
+ */
+function wctf_maybe_send_fazercards_auto_failure_alert( $order, $item, $item_id, $category_id, $offer_id, $error, $trigger, $customer_fields = array() ) {
+    if (
+        ! $order instanceof WC_Order
+        || ! $item instanceof WC_Order_Item_Product
+        || ! wctf_is_fazercards_automatic_submission_trigger( $trigger )
+        || 'yes' === sanitize_key( (string) $item->get_meta( '_wctf_fazer_auto_failure_alert_sent', true ) )
+    ) {
+        return;
+    }
+
+    $trigger = sanitize_key( $trigger );
+    $item->update_meta_data( '_wctf_fazer_auto_failure_trigger', $trigger );
+    $item->update_meta_data( '_wctf_fazer_auto_failure_alert_sent', 'no' );
+    $item->delete_meta_data( '_wctf_fazer_auto_failure_alerted_at' );
+    $item->save_meta_data();
+
+    $raw_recipient = get_option( 'admin_email', '' );
+    $recipient     = is_scalar( $raw_recipient ) ? sanitize_email( (string) $raw_recipient ) : '';
+
+    if ( ! is_email( $recipient ) ) {
+        return;
+    }
+
+    $order_id      = absint( $order->get_id() );
+    $item_id       = absint( $item_id );
+    $product_name  = sanitize_text_field( $item->get_name() );
+    $category_id   = sanitize_text_field( $category_id );
+    $offer_id      = sanitize_text_field( $offer_id );
+    $error         = sanitize_text_field( $error );
+
+    if ( is_array( $customer_fields ) ) {
+        foreach ( $customer_fields as $customer_value ) {
+            if ( ! is_scalar( $customer_value ) ) {
+                continue;
+            }
+
+            $customer_value = sanitize_text_field( (string) $customer_value );
+
+            if ( '' !== $customer_value ) {
+                $error = str_replace( $customer_value, '[redacted customer value]', $error );
+            }
+        }
+    }
+
+    foreach ( array( 'wctf_api_key', 'wctf_api_secret' ) as $credential_option ) {
+        $credential = get_option( $credential_option, '' );
+
+        if ( is_scalar( $credential ) && '' !== (string) $credential ) {
+            $error = str_replace( (string) $credential, '[redacted credential]', $error );
+        }
+    }
+
+    $attempted_at  = wctf_normalize_fazercards_payload_value( current_time( 'mysql', true ) );
+    $order_edit_url = esc_url_raw( $order->get_edit_order_url() );
+    $site_name     = sanitize_text_field( wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ) );
+    $subject       = sprintf(
+        /* translators: 1: site name, 2: order ID, 3: order item ID. */
+        __( '[%1$s] FazerCards automatic submission failed — Order #%2$d, item #%3$d', 'wc-topup-fields' ),
+        $site_name,
+        $order_id,
+        $item_id
+    );
+    $body          = implode(
+        "\n",
+        array(
+            __( 'A FazerCards automatic submission failed.', 'wc-topup-fields' ),
+            '',
+            sprintf( __( 'WooCommerce order: #%d', 'wc-topup-fields' ), $order_id ),
+            sprintf( __( 'Order admin: %s', 'wc-topup-fields' ), $order_edit_url ),
+            sprintf( __( 'Order item ID: %d', 'wc-topup-fields' ), $item_id ),
+            sprintf( __( 'Product: %s', 'wc-topup-fields' ), $product_name ),
+            sprintf( __( 'FazerCards category ID: %s', 'wc-topup-fields' ), $category_id ),
+            sprintf( __( 'FazerCards offer ID: %s', 'wc-topup-fields' ), $offer_id ),
+            sprintf( __( 'Error: %s', 'wc-topup-fields' ), $error ),
+            sprintf( __( 'Attempted at (UTC): %s', 'wc-topup-fields' ), $attempted_at ),
+            sprintf( __( 'Trigger: %s', 'wc-topup-fields' ), $trigger ),
+            '',
+            __( 'Manual retry is available in the WooCommerce order admin.', 'wc-topup-fields' ),
+        )
+    );
+    $mail_attempted = false;
+
+    try {
+        $mail_attempted = true;
+        wp_mail(
+            $recipient,
+            $subject,
+            $body,
+            array( 'Content-Type: text/plain; charset=UTF-8' )
+        );
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+    } finally {
+        if ( $mail_attempted ) {
+            $item->update_meta_data( '_wctf_fazer_auto_failure_alert_sent', 'yes' );
+            $item->update_meta_data( '_wctf_fazer_auto_failure_alerted_at', $attempted_at );
+            $item->update_meta_data( '_wctf_fazer_auto_failure_trigger', $trigger );
+            $item->save_meta_data();
+        }
+    }
+}
+
+/**
+ * Clear automatic failure alert metadata after any successful submission.
+ *
+ * @param WC_Order_Item_Product $item Order line item.
+ */
+function wctf_clear_fazercards_auto_failure_alert( $item ) {
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        return;
+    }
+
+    $item->delete_meta_data( '_wctf_fazer_auto_failure_alert_sent' );
+    $item->delete_meta_data( '_wctf_fazer_auto_failure_alerted_at' );
+    $item->delete_meta_data( '_wctf_fazer_auto_failure_trigger' );
 }
 
 /**
