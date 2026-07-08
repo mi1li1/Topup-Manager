@@ -352,3 +352,26 @@ Verified:
 - WooCommerce order status remains unchanged
 - No API credentials or customer top-up field values are included in the alert email
 - Manual retry remains available
+
+
+
+## Build003 Release5 Task4B
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added configurable recipients for FazerCards automatic failure alert emails
+- Added option wctf_fazercards_failure_alert_recipients
+- Supports multiple comma-separated admin emails
+- Invalid emails are removed during sanitization
+- Duplicate emails are removed
+- Empty or invalid configuration falls back to WordPress admin_email
+- Failure alert behavior remains automatic-failure-only
+- Manual failures do not trigger automatic failure emails
+
+Verified:
+- Configured recipient emails receive automatic failure alerts
+- Invalid and duplicate email handling works
+- WordPress admin_email fallback remains available
+- FazerCards API payload remains unchanged
+- WooCommerce order status remains unchanged

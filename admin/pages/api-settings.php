@@ -52,6 +52,11 @@ usort(
     }
 );
 
+$failure_alert_recipients = get_option( 'wctf_fazercards_failure_alert_recipients', '' );
+$failure_alert_recipients = is_scalar( $failure_alert_recipients )
+    ? (string) $failure_alert_recipients
+    : '';
+
 ?>
 
 <div class="wrap">
@@ -136,6 +141,27 @@ usort(
                             );
                             ?>
                         </strong>
+                    </p>
+                </td>
+            </tr>
+
+            <tr>
+                <th scope="row">
+                    <label for="wctf-fazercards-failure-alert-recipients">
+                        <?php esc_html_e( 'FazerCards Failure Alert Recipients', 'wc-topup-fields' ); ?>
+                    </label>
+                </th>
+                <td>
+                    <input
+                        type="text"
+                        id="wctf-fazercards-failure-alert-recipients"
+                        name="wctf_fazercards_failure_alert_recipients"
+                        value="<?php echo esc_attr( $failure_alert_recipients ); ?>"
+                        class="regular-text"
+                        placeholder="<?php echo esc_attr__( 'admin@example.com, support@example.com, orders@example.com', 'wc-topup-fields' ); ?>"
+                    >
+                    <p class="description">
+                        <?php esc_html_e( 'Enter one or more admin email addresses separated by commas. If empty, the WordPress admin email will be used.', 'wc-topup-fields' ); ?>
                     </p>
                 </td>
             </tr>

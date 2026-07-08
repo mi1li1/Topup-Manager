@@ -198,3 +198,16 @@
 - Automatic submission failure sends an admin email alert
 - WooCommerce order status is not changed by the failure alert system
 - Sensitive data is not included in failure alert emails
+
+
+
+## Build003 Release5 Task4B
+
+### Added
+- Configurable recipients for FazerCards automatic submission failure alerts
+- Multiple comma-separated recipient support
+- Fallback to WordPress admin email when no valid recipients are configured
+
+### Improved
+- More flexible admin notification routing for failed automatic submissions
+- Email sanitization and duplicate recipient removal

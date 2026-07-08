@@ -54,6 +54,15 @@ function wctf_register_settings()
         )
     );
 
+    register_setting(
+        'wctf_api_settings',
+        'wctf_fazercards_failure_alert_recipients',
+        array(
+            'default'           => '',
+            'sanitize_callback' => 'wctf_sanitize_fazercards_failure_alert_recipients',
+        )
+    );
+
 }
 
 /**
@@ -64,6 +73,33 @@ function wctf_register_settings()
  */
 function wctf_sanitize_fazercards_auto_submit_enabled( $value ) {
     return is_scalar( $value ) && 'yes' === sanitize_key( (string) $value ) ? 'yes' : 'no';
+}
+
+/**
+ * Normalize comma-separated automatic failure alert recipients.
+ *
+ * @param mixed $value Submitted recipient list.
+ * @return string
+ */
+function wctf_sanitize_fazercards_failure_alert_recipients( $value ) {
+    if ( ! is_scalar( $value ) ) {
+        return '';
+    }
+
+    $emails = array();
+    $value  = str_replace( array( "\r", "\n" ), ',', (string) $value );
+
+    foreach ( explode( ',', $value ) as $email ) {
+        $email = strtolower( sanitize_email( trim( $email ) ) );
+
+        if ( ! is_email( $email ) ) {
+            continue;
+        }
+
+        $emails[ $email ] = $email;
+    }
+
+    return implode( ', ', array_values( $emails ) );
 }
 
 /**

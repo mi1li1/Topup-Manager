@@ -1556,6 +1556,41 @@ function wctf_is_fazercards_automatic_submission_trigger( $trigger ) {
 }
 
 /**
+ * Get validated recipients for automatic FazerCards failure alerts.
+ *
+ * @return array
+ */
+function wctf_get_fazercards_failure_alert_recipients() {
+    $configured = get_option( 'wctf_fazercards_failure_alert_recipients', '' );
+    $recipients = array();
+
+    if ( is_scalar( $configured ) ) {
+        $configured = str_replace( array( "\r", "\n" ), ',', (string) $configured );
+
+        foreach ( explode( ',', $configured ) as $email ) {
+            $email = strtolower( sanitize_email( trim( $email ) ) );
+
+            if ( ! is_email( $email ) ) {
+                continue;
+            }
+
+            $recipients[ $email ] = $email;
+        }
+    }
+
+    if ( ! empty( $recipients ) ) {
+        return array_values( $recipients );
+    }
+
+    $admin_email = get_option( 'admin_email', '' );
+    $admin_email = is_scalar( $admin_email )
+        ? strtolower( sanitize_email( (string) $admin_email ) )
+        : '';
+
+    return is_email( $admin_email ) ? array( $admin_email ) : array();
+}
+
+/**
  * Send one admin-only alert after an actual automatic FazerCards failure.
  *
  * @param WC_Order              $order       WooCommerce order.
@@ -1583,10 +1618,9 @@ function wctf_maybe_send_fazercards_auto_failure_alert( $order, $item, $item_id,
     $item->delete_meta_data( '_wctf_fazer_auto_failure_alerted_at' );
     $item->save_meta_data();
 
-    $raw_recipient = get_option( 'admin_email', '' );
-    $recipient     = is_scalar( $raw_recipient ) ? sanitize_email( (string) $raw_recipient ) : '';
+    $recipients = wctf_get_fazercards_failure_alert_recipients();
 
-    if ( ! is_email( $recipient ) ) {
+    if ( empty( $recipients ) ) {
         return;
     }
 
@@ -1652,7 +1686,7 @@ function wctf_maybe_send_fazercards_auto_failure_alert( $order, $item, $item_id,
     try {
         $mail_attempted = true;
         wp_mail(
-            $recipient,
+            $recipients,
             $subject,
             $body,
             array( 'Content-Type: text/plain; charset=UTF-8' )
