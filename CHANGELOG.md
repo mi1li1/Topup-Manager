@@ -266,3 +266,26 @@
 - Gift Cards sync completed successfully
 - Gift Card Browser works correctly
 - Existing Service Top-up features remain unaffected
+
+
+
+## Build004 Release1 Task3
+
+### Added
+- WooCommerce simple product binding for FazerCards Gift Cards
+- Gift Card SKU search from local synced cache
+- Gift Card product meta storage
+- Gift Card binding clear action
+- Mutual exclusivity between Gift Card and Service Top-up bindings
+
+### Safety
+- Gift Card binding is product-admin only
+- Gift Card purchase endpoint is not implemented
+- No Gift Card codes, PINs, serials or redeem URLs are stored
+- Existing Service Top-up automatic submission flow is unchanged
+
+### Verified
+- Gift Card SKU binding works correctly
+- Saved Gift Card binding persists after product update
+- Clearing Gift Card binding works correctly
+- Existing Service Top-up products remain unaffected

@@ -456,3 +456,53 @@ Safety:
 - No customer delivery
 - No WooCommerce order status changes
 - Existing Top-up Provider and order flow unchanged
+
+
+
+## Build004 Release1 Task3
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added WooCommerce simple product Gift Card binding
+- Added separate FazerCards Gift Card Binding product admin section
+- Added local-cache-only Gift Card SKU search
+- Added Gift Card SKU select and clear binding behavior
+- Added Gift Card product meta storage
+- Enforced mutual exclusivity between Gift Card and Service Top-up bindings
+- Gift Card binding saves values from local cache only
+
+New files:
+- admin/giftcard-product-fields.php
+- admin/js/product-giftcard-binding.js
+
+Modified files:
+- wc-topup-fields.php
+
+New product meta:
+- _wctf_fazer_product_kind
+- _wctf_fazer_giftcard_category_id
+- _wctf_fazer_giftcard_card_id
+- _wctf_fazer_giftcard_offer_key
+- _wctf_fazer_giftcard_offer_name
+- _wctf_fazer_giftcard_price_usd
+- _wctf_fazer_giftcard_currency
+- _wctf_fazer_giftcard_region
+- _wctf_fazer_giftcard_min_quantity
+- _wctf_fazer_giftcard_max_quantity
+
+Verified:
+- Gift Card Binding section appears for simple products
+- Gift Card SKU search works from local cache
+- Gift Card binding saves and persists after product update
+- Gift Card binding can be cleared
+- Gift Card and Service Top-up bindings are mutually exclusive
+- Existing Top-up product binding and automatic submission remain unaffected
+
+Safety:
+- No Gift Card purchase endpoint implemented
+- No /giftcards/order call added
+- No Gift Card code/PIN/serial/redeem URL storage
+- No customer delivery
+- No WooCommerce order status changes
+- Existing Top-up automatic submission flow unchanged

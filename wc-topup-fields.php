@@ -29,6 +29,7 @@ $includes = [
     'admin/giftcard-settings.php',
     'admin/product-fields.php',
     'admin/fazer-fields.php',
+    'admin/giftcard-product-fields.php',
 
     // Frontend
     'frontend/form-fields.php',
