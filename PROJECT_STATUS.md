@@ -506,3 +506,50 @@ Safety:
 - No customer delivery
 - No WooCommerce order status changes
 - Existing Top-up automatic submission flow unchanged
+
+
+
+## Build004 Release1 Task3B
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added product type based binding panel visibility
+- Added centralized product type visibility controller
+- New/simple products hide all binding panels until a product type is selected
+- Gift Card products show only FazerCards Gift Card Binding
+- Game top-up products show only FazerCards Offer / Top-up Binding
+- Account top-up products show only account placeholder
+- Added server-side save safety based on _topup_type
+- Enforced mutual exclusivity between Gift Card and Service Top-up bindings
+
+Product type rules:
+- giftcard shows Gift Card Binding and clears Top-up binding
+- game shows Top-up Binding and clears Gift Card binding
+- account hides both binding panels, clears both binding sets and disables product-level auto-submit
+- empty/unknown hides all binding panels and prevents new binding saves
+
+New file:
+- admin/js/product-type-visibility.js
+
+Modified files:
+- admin/fazer-fields.php
+- admin/giftcard-product-fields.php
+- admin/product-fields.php
+
+Verified:
+- New product shows only base fields before selecting product type
+- Selecting Gift Card shows only Gift Card Binding
+- Selecting Game Top-up shows only Top-up Binding
+- Selecting Account Top-up shows only the account placeholder
+- UI updates immediately when changing product type
+- Saving and refreshing keeps the correct panel visible
+- WooCommerce show_if_simple no longer re-shows both panels
+- Existing Game Top-up products remain unaffected
+
+Safety:
+- No Gift Card purchase endpoint implemented
+- No /giftcards/order call added
+- No Gift Card code/PIN/serial/redeem URL storage
+- No account top-up functionality implemented
+- Existing Top-up automatic submission logic unchanged

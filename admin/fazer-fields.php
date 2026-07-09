@@ -47,7 +47,7 @@ function wctf_add_fazer_offer_binding_fields() {
     }
 
     ?>
-    <div class="options_group show_if_simple" id="wctf-fazer-offer-binding">
+    <div class="options_group show_if_simple wctf-product-type-panel" id="wctf-fazer-offer-binding">
         <?php wp_nonce_field( 'wctf_save_product_offer_binding', 'wctf_product_offer_binding_nonce' ); ?>
 
         <p class="form-field">
@@ -200,6 +200,23 @@ function wctf_save_fazer_offer_binding( $post_id ) {
         return;
     }
 
+    $topup_type = wctf_get_submitted_topup_type_for_fazer_binding();
+
+    if ( 'giftcard' === $topup_type ) {
+        wctf_clear_fazercards_topup_product_binding( $post_id, false );
+        return;
+    }
+
+    if ( 'account' === $topup_type ) {
+        wctf_clear_fazercards_topup_product_binding( $post_id, true );
+        return;
+    }
+
+    if ( 'game' !== $topup_type ) {
+        update_post_meta( $post_id, '_wctf_fazer_auto_submit_enabled', 'no' );
+        return;
+    }
+
     if ( ! isset( $_POST['_fazer_offer_id'] ) || ! is_string( $_POST['_fazer_offer_id'] ) ) {
         return;
     }
@@ -292,6 +309,44 @@ function wctf_save_fazer_offer_binding( $post_id ) {
 
         update_post_meta( $post_id, '_topup_fields', implode( ',', $required_field_keys ) );
     }
+}
+
+/**
+ * Return the submitted custom top-up type for binding save decisions.
+ *
+ * @return string
+ */
+function wctf_get_submitted_topup_type_for_fazer_binding() {
+    if ( ! isset( $_POST['_topup_type'] ) || ! is_scalar( $_POST['_topup_type'] ) ) {
+        return '';
+    }
+
+    $topup_type = sanitize_key( wp_unslash( $_POST['_topup_type'] ) );
+
+    return in_array( $topup_type, array( 'giftcard', 'game', 'account' ), true )
+        ? $topup_type
+        : '';
+}
+
+/**
+ * Clear Service Top-up binding meta.
+ *
+ * @param int  $post_id       Product post ID.
+ * @param bool $force_auto_no Whether to leave product-level auto-submit explicitly disabled.
+ */
+function wctf_clear_fazercards_topup_product_binding( $post_id, $force_auto_no = false ) {
+    delete_post_meta( $post_id, '_fazer_category_id' );
+    delete_post_meta( $post_id, '_fazer_offer_id' );
+    delete_post_meta( $post_id, '_fazer_offer_name' );
+    delete_post_meta( $post_id, '_fazer_price_usd' );
+    delete_post_meta( $post_id, '_wctf_fazer_offer_key' );
+
+    if ( $force_auto_no ) {
+        update_post_meta( $post_id, '_wctf_fazer_auto_submit_enabled', 'no' );
+        return;
+    }
+
+    delete_post_meta( $post_id, '_wctf_fazer_auto_submit_enabled' );
 }
 
 /**

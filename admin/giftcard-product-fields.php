@@ -54,7 +54,7 @@ function wctf_add_fazercards_giftcard_binding_fields() {
     }
 
     ?>
-    <div class="options_group show_if_simple" id="wctf-fazercards-giftcard-binding">
+    <div class="options_group show_if_simple wctf-product-type-panel" id="wctf-fazercards-giftcard-binding">
         <?php wp_nonce_field( 'wctf_save_fazercards_giftcard_binding', 'wctf_fazercards_giftcard_binding_nonce' ); ?>
 
         <p class="form-field">
@@ -167,6 +167,17 @@ function wctf_save_fazercards_giftcard_binding( $post_id ) {
         return;
     }
 
+    $topup_type = wctf_get_submitted_topup_type_for_fazercards_giftcard_binding();
+
+    if ( 'game' === $topup_type || 'account' === $topup_type ) {
+        wctf_clear_fazercards_giftcard_product_binding( $post_id );
+        return;
+    }
+
+    if ( 'giftcard' !== $topup_type ) {
+        return;
+    }
+
     $category_id = isset( $_POST['_wctf_fazer_giftcard_category_id'] ) && is_string( $_POST['_wctf_fazer_giftcard_category_id'] )
         ? sanitize_text_field( wp_unslash( $_POST['_wctf_fazer_giftcard_category_id'] ) )
         : '';
@@ -235,6 +246,23 @@ function wctf_save_fazercards_giftcard_binding( $post_id ) {
 }
 
 /**
+ * Return the submitted custom top-up type for Gift Card binding save decisions.
+ *
+ * @return string
+ */
+function wctf_get_submitted_topup_type_for_fazercards_giftcard_binding() {
+    if ( ! isset( $_POST['_topup_type'] ) || ! is_scalar( $_POST['_topup_type'] ) ) {
+        return '';
+    }
+
+    $topup_type = sanitize_key( wp_unslash( $_POST['_topup_type'] ) );
+
+    return in_array( $topup_type, array( 'giftcard', 'game', 'account' ), true )
+        ? $topup_type
+        : '';
+}
+
+/**
  * Clear Gift Card-only product meta.
  *
  * @param int $post_id Product post ID.
@@ -261,6 +289,11 @@ function wctf_clear_fazercards_giftcard_product_binding( $post_id ) {
  * @param int $post_id Product post ID.
  */
 function wctf_clear_fazercards_topup_product_binding_for_giftcard( $post_id ) {
+    if ( function_exists( 'wctf_clear_fazercards_topup_product_binding' ) ) {
+        wctf_clear_fazercards_topup_product_binding( $post_id, false );
+        return;
+    }
+
     delete_post_meta( $post_id, '_fazer_category_id' );
     delete_post_meta( $post_id, '_fazer_offer_id' );
     delete_post_meta( $post_id, '_fazer_offer_name' );

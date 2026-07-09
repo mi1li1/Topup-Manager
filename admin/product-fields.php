@@ -110,3 +110,49 @@ add_action(
         echo '</div>';
     }
 );
+
+add_action(
+    'woocommerce_product_options_general_product_data',
+    'wctf_add_account_topup_placeholder_panel',
+    30
+);
+
+function wctf_add_account_topup_placeholder_panel()
+{
+    echo '<div class="options_group show_if_simple wctf-product-type-panel" id="wctf-account-topup-binding" hidden style="display:none;" aria-hidden="true">';
+    echo '<p class="form-field">';
+    echo '<span class="description">';
+    echo esc_html__('Account top-up is not implemented yet.', 'wc-topup-fields');
+    echo '</span>';
+    echo '</p>';
+    echo '</div>';
+}
+
+add_action(
+    'admin_enqueue_scripts',
+    'wctf_enqueue_product_type_visibility_assets'
+);
+
+function wctf_enqueue_product_type_visibility_assets($hook_suffix)
+{
+    if (!in_array($hook_suffix, array('post.php', 'post-new.php'), true)) {
+        return;
+    }
+
+    $screen = get_current_screen();
+
+    if (!$screen || 'product' !== $screen->post_type) {
+        return;
+    }
+
+    $script_path    = __DIR__ . '/js/product-type-visibility.js';
+    $script_version = file_exists($script_path) ? (string) filemtime($script_path) : wctf_plugin_version();
+
+    wp_enqueue_script(
+        'wctf-product-type-visibility',
+        plugins_url('js/product-type-visibility.js', __FILE__),
+        array('jquery'),
+        $script_version,
+        true
+    );
+}

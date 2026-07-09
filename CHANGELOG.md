@@ -289,3 +289,29 @@
 - Saved Gift Card binding persists after product update
 - Clearing Gift Card binding works correctly
 - Existing Service Top-up products remain unaffected
+
+
+
+## Build004 Release1 Task3B
+
+### Added
+- Centralized product type visibility controller for product admin binding panels
+- Conditional display for Gift Card, Game Top-up and Account Top-up product types
+- Account Top-up placeholder panel
+
+### Improved
+- Cleaner WooCommerce product edit UI
+- Gift Card and Top-up binding panels no longer appear at the same time
+- New products hide binding panels until a product type is selected
+- Server-side save safety based on _topup_type
+
+### Safety
+- Gift Card and Top-up bindings remain mutually exclusive
+- Account Top-up clears unsupported bindings and disables product-level auto-submit
+- No Gift Card purchase or code storage was added
+- Existing Top-up automatic submission flow is unchanged
+
+### Verified
+- Product type switching works immediately in the admin editor
+- Correct panel remains visible after saving and refreshing
+- WooCommerce show_if_simple behavior no longer overrides custom visibility
