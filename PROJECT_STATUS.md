@@ -553,3 +553,50 @@ Safety:
 - No Gift Card code/PIN/serial/redeem URL storage
 - No account top-up functionality implemented
 - Existing Top-up automatic submission logic unchanged
+
+
+
+## Build004 Release1 Task4
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added Gift Card order item snapshot
+- Added separate admin-only Gift Card Dry Run preview
+- Gift Card Dry Run uses order item snapshot only
+- Gift Card Dry Run shows future purchase payload preview without submitting
+- Added quantity validation warnings
+- Gift Card order snapshot remains independent from later product binding changes
+
+Modified files:
+- includes/order.php
+
+New order item meta:
+- _wctf_fazer_item_kind
+- _wctf_fazer_giftcard_category_id
+- _wctf_fazer_giftcard_card_id
+- _wctf_fazer_giftcard_offer_key
+- _wctf_fazer_giftcard_offer_name
+- _wctf_fazer_giftcard_price_usd
+- _wctf_fazer_giftcard_currency
+- _wctf_fazer_giftcard_region
+- _wctf_fazer_giftcard_min_quantity
+- _wctf_fazer_giftcard_max_quantity
+- _wctf_fazer_giftcard_snapshot_created_at
+
+Verified:
+- Gift Card orders store snapshot meta on order items
+- Admin order page shows FazerCards Gift Card Dry Run
+- Dry Run payload displays category_id, card_id and quantity
+- Dry Run has no submit button
+- Old orders continue using order item snapshot after product binding changes
+- Quantity warnings work
+- Existing Service Top-up Dry Run, REAL Submit and automatic submission remain unaffected
+
+Safety:
+- No Gift Card purchase endpoint implemented
+- No /giftcards/order call added
+- No Gift Card code/PIN/serial/redeem URL storage
+- No customer delivery
+- No WooCommerce order status changes
+- Existing Top-up automatic submission flow unchanged

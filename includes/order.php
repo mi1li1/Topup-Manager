@@ -6,8 +6,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 add_action( 'woocommerce_checkout_create_order_line_item', 'wctf_save_order_item_customer_fields', 10, 4 );
 add_action( 'woocommerce_checkout_create_order_line_item', 'wctf_snapshot_fazercards_order_item_binding', 20, 4 );
+add_action( 'woocommerce_checkout_create_order_line_item', 'wctf_snapshot_fazercards_giftcard_order_item_binding', 30, 4 );
 add_action( 'woocommerce_after_order_itemmeta', 'wctf_display_fazercards_order_item_payload', 10, 3 );
 add_action( 'add_meta_boxes', 'wctf_register_fazercards_dry_run_meta_box' );
+add_action( 'add_meta_boxes', 'wctf_register_fazercards_giftcard_dry_run_meta_box' );
 add_action( 'admin_post_wctf_fazercards_dry_run', 'wctf_handle_fazercards_dry_run' );
 add_action( 'admin_post_wctf_fazercards_submit_order_item', 'wctf_handle_fazercards_order_item_submission' );
 add_action( 'woocommerce_order_status_processing', 'wctf_handle_fazercards_auto_submission', 20, 3 );
@@ -104,6 +106,247 @@ function wctf_snapshot_fazercards_order_item_binding( $item, $cart_item_key, $va
     foreach ( $snapshot as $meta_key => $meta_value ) {
         $item->add_meta_data( $meta_key, $meta_value, true );
     }
+}
+
+/**
+ * Snapshot FazerCards Gift Card binding data onto an eligible order line item.
+ *
+ * @param WC_Order_Item_Product $item          Order line item.
+ * @param string                $cart_item_key Cart item key.
+ * @param array                 $values        Cart item values.
+ * @param WC_Order              $order         WooCommerce order.
+ */
+function wctf_snapshot_fazercards_giftcard_order_item_binding( $item, $cart_item_key, $values, $order ) {
+    unset( $cart_item_key, $order );
+
+    if (
+        ! $item instanceof WC_Order_Item_Product
+        || ! is_array( $values )
+        || ! isset( $values['data'] )
+        || ! $values['data'] instanceof WC_Product
+    ) {
+        return;
+    }
+
+    $product = $values['data'];
+
+    if ( ! wctf_is_fazercards_giftcard_product( $product ) ) {
+        return;
+    }
+
+    $product_id = absint( $product->get_id() );
+    $snapshot   = array(
+        '_wctf_fazer_item_kind'                        => 'giftcard',
+        '_wctf_fazer_giftcard_category_id'             => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_category_id', true ) ),
+        '_wctf_fazer_giftcard_card_id'                 => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_card_id', true ) ),
+        '_wctf_fazer_giftcard_offer_key'               => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_offer_key', true ) ),
+        '_wctf_fazer_giftcard_offer_name'              => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_offer_name', true ) ),
+        '_wctf_fazer_giftcard_price_usd'               => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_price_usd', true ) ),
+        '_wctf_fazer_giftcard_currency'                => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_currency', true ) ),
+        '_wctf_fazer_giftcard_region'                  => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_region', true ) ),
+        '_wctf_fazer_giftcard_min_quantity'            => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_min_quantity', true ) ),
+        '_wctf_fazer_giftcard_max_quantity'            => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_max_quantity', true ) ),
+        '_wctf_fazer_giftcard_snapshot_created_at'     => wctf_normalize_fazercards_giftcard_payload_value( current_time( 'mysql', true ) ),
+    );
+
+    foreach ( $snapshot as $meta_key => $meta_value ) {
+        $item->add_meta_data( $meta_key, $meta_value, true );
+    }
+}
+
+/**
+ * Determine whether a WooCommerce product is a configured FazerCards Gift Card product.
+ *
+ * @param WC_Product|false|null $product WooCommerce product.
+ * @return bool
+ */
+function wctf_is_fazercards_giftcard_product( $product ) {
+    if ( ! $product instanceof WC_Product || ! $product->is_type( 'simple' ) ) {
+        return false;
+    }
+
+    $product_id    = absint( $product->get_id() );
+    $topup_type    = sanitize_key( (string) get_post_meta( $product_id, '_topup_type', true ) );
+    $product_kind  = sanitize_key( (string) get_post_meta( $product_id, '_wctf_fazer_product_kind', true ) );
+    $card_id       = wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_card_id', true ) );
+
+    return 'giftcard' === $topup_type && 'giftcard' === $product_kind && '' !== $card_id;
+}
+
+/**
+ * Read a sanitized Gift Card snapshot from an order item.
+ *
+ * @param WC_Order_Item_Product $item Order line item.
+ * @return array
+ */
+function wctf_get_fazercards_giftcard_order_item_snapshot( $item ) {
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        return array();
+    }
+
+    $snapshot = array(
+        'item_kind'           => sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) ),
+        'category_id'         => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_category_id', true ) ),
+        'card_id'             => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_card_id', true ) ),
+        'offer_key'           => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_offer_key', true ) ),
+        'offer_name'          => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_offer_name', true ) ),
+        'price_usd'           => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_price_usd', true ) ),
+        'currency'            => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_currency', true ) ),
+        'region'              => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_region', true ) ),
+        'min_order_quantity'  => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_min_quantity', true ) ),
+        'max_order_quantity'  => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_max_quantity', true ) ),
+        'snapshot_created_at' => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_snapshot_created_at', true ) ),
+    );
+
+    return 'giftcard' === $snapshot['item_kind'] ? $snapshot : array();
+}
+
+/**
+ * Prepare a local Gift Card purchase payload preview for an order line item.
+ *
+ * @param WC_Order              $order   WooCommerce order.
+ * @param WC_Order_Item_Product $item    Order line item.
+ * @param int                   $item_id Order item ID.
+ * @return array
+ */
+function wctf_prepare_fazercards_giftcard_order_item_payload( $order, $item, $item_id ) {
+    $result = array(
+        'success'           => false,
+        'warnings'          => array(),
+        'snapshot_complete' => false,
+        'snapshot'          => array(),
+        'payload'           => array(),
+    );
+
+    if ( ! $order instanceof WC_Order || ! $item instanceof WC_Order_Item_Product ) {
+        $result['warnings'][] = __( 'The WooCommerce order item is invalid.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    $snapshot = wctf_get_fazercards_giftcard_order_item_snapshot( $item );
+    $quantity = max( 0, (int) $item->get_quantity() );
+
+    if ( empty( $snapshot ) ) {
+        $product = $item->get_product();
+
+        if ( wctf_is_fazercards_giftcard_product( $product ) ) {
+            $result['warnings'][] = __( 'Gift Card product detected, but order item snapshot is missing.', 'wc-topup-fields' );
+            $result['payload']    = array(
+                'category_id' => '',
+                'card_id'     => '',
+                'quantity'    => $quantity,
+            );
+        }
+
+        return $result;
+    }
+
+    $required_snapshot_fields = array(
+        'category_id',
+        'card_id',
+        'offer_key',
+        'offer_name',
+        'price_usd',
+        'currency',
+        'region',
+        'snapshot_created_at',
+    );
+
+    $snapshot_warnings = array();
+
+    foreach ( $required_snapshot_fields as $field_key ) {
+        if ( '' === $snapshot[ $field_key ] ) {
+            $snapshot_warnings[] = sprintf(
+                /* translators: %s: missing snapshot field key. */
+                __( 'Missing Gift Card snapshot data: %s.', 'wc-topup-fields' ),
+                $field_key
+            );
+        }
+    }
+
+    if ( '' === $snapshot['category_id'] ) {
+        $snapshot_warnings[] = __( 'Gift Card category ID is missing.', 'wc-topup-fields' );
+    }
+
+    if ( '' === $snapshot['card_id'] ) {
+        $snapshot_warnings[] = __( 'Gift Card card ID is missing.', 'wc-topup-fields' );
+    }
+
+    $result['warnings'] = array_merge( $result['warnings'], $snapshot_warnings );
+    $result['warnings'] = array_merge(
+        $result['warnings'],
+        wctf_get_fazercards_giftcard_quantity_warnings(
+            $quantity,
+            $snapshot['min_order_quantity'],
+            $snapshot['max_order_quantity']
+        )
+    );
+    $result['snapshot'] = $snapshot;
+    $result['payload']  = array(
+        'category_id' => $snapshot['category_id'],
+        'card_id'     => $snapshot['card_id'],
+        'quantity'    => $quantity,
+    );
+    $result['snapshot_complete'] = empty( $snapshot_warnings );
+    $result['success']           = true;
+
+    return $result;
+}
+
+/**
+ * Return Gift Card quantity warnings for a local preview.
+ *
+ * @param int    $quantity     WooCommerce order item quantity.
+ * @param string $min_quantity Cached minimum quantity.
+ * @param string $max_quantity Cached maximum quantity.
+ * @return array
+ */
+function wctf_get_fazercards_giftcard_quantity_warnings( $quantity, $min_quantity, $max_quantity ) {
+    $warnings = array();
+
+    if ( 1 > $quantity ) {
+        $warnings[] = __( 'Gift Card quantity must be at least 1.', 'wc-topup-fields' );
+    }
+
+    if ( '' !== $min_quantity && is_numeric( $min_quantity ) && $quantity < (int) $min_quantity ) {
+        $warnings[] = sprintf(
+            /* translators: %s: minimum order quantity. */
+            __( 'Gift Card quantity is less than the minimum order quantity: %s.', 'wc-topup-fields' ),
+            $min_quantity
+        );
+    }
+
+    if ( '' !== $max_quantity && is_numeric( $max_quantity ) && $quantity > (int) $max_quantity ) {
+        $warnings[] = sprintf(
+            /* translators: %s: maximum order quantity. */
+            __( 'Gift Card quantity is greater than the maximum order quantity: %s.', 'wc-topup-fields' ),
+            $max_quantity
+        );
+    }
+
+    if ( '' !== $min_quantity && ! is_numeric( $min_quantity ) ) {
+        $warnings[] = __( 'Gift Card minimum order quantity is not numeric; please review manually.', 'wc-topup-fields' );
+    }
+
+    if ( '' !== $max_quantity && ! is_numeric( $max_quantity ) ) {
+        $warnings[] = __( 'Gift Card maximum order quantity is not numeric; please review manually.', 'wc-topup-fields' );
+    }
+
+    return $warnings;
+}
+
+/**
+ * Normalize a scalar value for a local Gift Card payload preview.
+ *
+ * @param mixed $value Raw value.
+ * @return string
+ */
+function wctf_normalize_fazercards_giftcard_payload_value( $value ) {
+    if ( ! is_scalar( $value ) ) {
+        return '';
+    }
+
+    return sanitize_text_field( (string) $value );
 }
 
 /**
@@ -340,6 +583,181 @@ function wctf_register_fazercards_dry_run_meta_box() {
             'normal',
             'default'
         );
+    }
+}
+
+/**
+ * Register the preview-only FazerCards Gift Card Dry Run meta box.
+ */
+function wctf_register_fazercards_giftcard_dry_run_meta_box() {
+    $screens = array( 'shop_order' );
+
+    if ( function_exists( 'wc_get_page_screen_id' ) ) {
+        $screens[] = wc_get_page_screen_id( 'shop-order' );
+    }
+
+    foreach ( array_unique( $screens ) as $screen ) {
+        add_meta_box(
+            'wctf-fazercards-giftcard-dry-run',
+            __( 'FazerCards Gift Card Dry Run', 'wc-topup-fields' ),
+            'wctf_render_fazercards_giftcard_dry_run_meta_box',
+            $screen,
+            'normal',
+            'default'
+        );
+    }
+}
+
+/**
+ * Render the preview-only Gift Card Dry Run meta box.
+ *
+ * @param WP_Post|WC_Order $post_or_order_object Order screen object.
+ */
+function wctf_render_fazercards_giftcard_dry_run_meta_box( $post_or_order_object ) {
+    if ( $post_or_order_object instanceof WC_Order ) {
+        $order = $post_or_order_object;
+    } elseif ( $post_or_order_object instanceof WP_Post ) {
+        $order = wc_get_order( $post_or_order_object->ID );
+    } else {
+        $order = false;
+    }
+
+    if ( ! $order ) {
+        echo '<p>' . esc_html__( 'The WooCommerce order could not be loaded.', 'wc-topup-fields' ) . '</p>';
+        return;
+    }
+
+    echo '<p>' . esc_html__( 'Preview locally prepared Gift Card purchase payloads. This does not submit or purchase Gift Cards.', 'wc-topup-fields' ) . '</p>';
+
+    $giftcard_items = array();
+
+    foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
+        if ( ! $item instanceof WC_Order_Item_Product ) {
+            continue;
+        }
+
+        $prepared = wctf_prepare_fazercards_giftcard_order_item_payload( $order, $item, $item_id );
+
+        if ( empty( $prepared['success'] ) && empty( $prepared['warnings'] ) ) {
+            continue;
+        }
+
+        $giftcard_items[] = array(
+            'item_id'  => absint( $item_id ),
+            'item'     => $item,
+            'prepared' => $prepared,
+        );
+    }
+
+    if ( empty( $giftcard_items ) ) {
+        echo '<div class="notice notice-info inline"><p>';
+        echo esc_html__( 'No FazerCards Gift Card order items were found.', 'wc-topup-fields' );
+        echo '</p></div>';
+        return;
+    }
+
+    foreach ( $giftcard_items as $giftcard_item ) {
+        $item_id   = $giftcard_item['item_id'];
+        $item      = $giftcard_item['item'];
+        $prepared  = $giftcard_item['prepared'];
+        $snapshot  = isset( $prepared['snapshot'] ) && is_array( $prepared['snapshot'] )
+            ? $prepared['snapshot']
+            : array();
+        $payload   = isset( $prepared['payload'] ) && is_array( $prepared['payload'] )
+            ? $prepared['payload']
+            : array();
+        $warnings  = isset( $prepared['warnings'] ) && is_array( $prepared['warnings'] )
+            ? array_values( array_unique( array_filter( $prepared['warnings'], 'is_scalar' ) ) )
+            : array();
+        $json      = wp_json_encode(
+            $payload,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        );
+
+        if ( false === $json ) {
+            $json       = '{}';
+            $warnings[] = __( 'The Gift Card payload preview could not be encoded.', 'wc-topup-fields' );
+        }
+
+        ?>
+        <section class="wctf-fazercards-giftcard-dry-run-item">
+            <h4>
+                <?php
+                echo esc_html(
+                    sprintf(
+                        /* translators: 1: order item ID, 2: product name. */
+                        __( 'Order item #%1$d 鈥?%2$s', 'wc-topup-fields' ),
+                        $item_id,
+                        sanitize_text_field( $item->get_name() )
+                    )
+                );
+                ?>
+            </h4>
+
+            <table class="widefat striped">
+                <tbody>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Product name', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( sanitize_text_field( $item->get_name() ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Quantity', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( max( 0, (int) $item->get_quantity() ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Category ID', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( isset( $snapshot['category_id'] ) ? $snapshot['category_id'] : '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Card ID', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( isset( $snapshot['card_id'] ) ? $snapshot['card_id'] : '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Gift Card name', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( isset( $snapshot['offer_name'] ) ? $snapshot['offer_name'] : '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Price USD', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( isset( $snapshot['price_usd'] ) ? $snapshot['price_usd'] : '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Currency', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( isset( $snapshot['currency'] ) ? $snapshot['currency'] : '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Region', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( isset( $snapshot['region'] ) ? $snapshot['region'] : '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Minimum Quantity', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( isset( $snapshot['min_order_quantity'] ) ? $snapshot['min_order_quantity'] : '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Maximum Quantity', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( isset( $snapshot['max_order_quantity'] ) ? $snapshot['max_order_quantity'] : '' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Snapshot complete', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( ! empty( $prepared['snapshot_complete'] ) ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <?php if ( ! empty( $warnings ) ) : ?>
+                <div class="notice notice-warning inline" role="alert">
+                    <p><strong><?php esc_html_e( 'Warnings:', 'wc-topup-fields' ); ?></strong></p>
+                    <ul>
+                        <?php foreach ( $warnings as $warning ) : ?>
+                            <li><?php echo esc_html( (string) $warning ); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+            <p><strong><?php esc_html_e( 'Gift Card payload preview:', 'wc-topup-fields' ); ?></strong></p>
+            <pre><code><?php echo esc_html( $json ); ?></code></pre>
+        </section>
+        <?php
     }
 }
 

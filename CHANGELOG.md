@@ -315,3 +315,30 @@
 - Product type switching works immediately in the admin editor
 - Correct panel remains visible after saving and refreshing
 - WooCommerce show_if_simple behavior no longer overrides custom visibility
+
+
+
+## Build004 Release1 Task4
+
+### Added
+- Gift Card order item snapshot
+- Admin-only FazerCards Gift Card Dry Run preview
+- Gift Card payload preview from order item snapshot
+- Quantity validation warnings for Gift Card orders
+
+### Improved
+- Gift Card order preview is independent from later product binding changes
+- Gift Card order logic remains separate from Service Top-up submit logic
+
+### Safety
+- Gift Card Dry Run is read-only
+- No Gift Card purchase endpoint was implemented
+- No /giftcards/order call was added
+- No Gift Card codes, PINs, serials or redeem URLs are stored
+- Existing Service Top-up Dry Run, REAL Submit and automatic submission are unchanged
+
+### Verified
+- Gift Card order snapshots are created correctly
+- Gift Card Dry Run displays correct category_id, card_id and quantity
+- No submit button or real purchase action exists
+- Existing Service Top-up order flow remains unaffected
