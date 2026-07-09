@@ -52,6 +52,46 @@ usort(
     }
 );
 
+$giftcard_browser_categories       = get_option( 'wctf_fazercards_giftcard_categories', array() );
+$giftcard_browser_category_options = array();
+
+if ( is_array( $giftcard_browser_categories ) ) {
+    foreach ( $giftcard_browser_categories as $category ) {
+        if (
+            ! is_array( $category )
+            || ! isset( $category['category_id'] )
+            || ! is_scalar( $category['category_id'] )
+        ) {
+            continue;
+        }
+
+        $category_id   = sanitize_text_field( (string) $category['category_id'] );
+        $category_name = isset( $category['name'] ) && is_scalar( $category['name'] )
+            ? sanitize_text_field( (string) $category['name'] )
+            : '';
+
+        if ( '' === $category_id ) {
+            continue;
+        }
+
+        $giftcard_browser_category_options[] = array(
+            'id'   => $category_id,
+            'name' => $category_name,
+        );
+    }
+}
+
+usort(
+    $giftcard_browser_category_options,
+    function ( $first, $second ) {
+        $name_comparison = strcasecmp( $first['name'], $second['name'] );
+
+        return 0 !== $name_comparison
+            ? $name_comparison
+            : strcasecmp( $first['id'], $second['id'] );
+    }
+);
+
 $failure_alert_recipients = get_option( 'wctf_fazercards_failure_alert_recipients', '' );
 $failure_alert_recipients = is_scalar( $failure_alert_recipients )
     ? (string) $failure_alert_recipients
@@ -432,6 +472,211 @@ $failure_alert_recipients = is_scalar( $failure_alert_recipients )
                 >
                     <?php esc_html_e( 'Next', 'wc-topup-fields' ); ?>
                 </button>
+            </div>
+        </div>
+    </section>
+
+    <hr>
+
+    <section id="wctf-giftcard-catalog" aria-labelledby="wctf-giftcard-catalog-heading">
+        <h2 id="wctf-giftcard-catalog-heading">
+            <?php esc_html_e( 'FazerCards Gift Cards', 'wc-topup-fields' ); ?>
+        </h2>
+
+        <p>
+            <?php esc_html_e( 'Synchronize and browse the read-only FazerCards Gift Card catalog. This section does not purchase Gift Cards.', 'wc-topup-fields' ); ?>
+        </p>
+
+        <h3><?php esc_html_e( 'Gift Card Category Synchronization', 'wc-topup-fields' ); ?></h3>
+
+        <p>
+            <button type="button" class="button button-secondary" id="wctf-giftcard-sync-categories">
+                <?php esc_html_e( 'Sync Gift Card Categories', 'wc-topup-fields' ); ?>
+            </button>
+            <span class="spinner" id="wctf-giftcard-sync-categories-spinner" aria-hidden="true"></span>
+        </p>
+
+        <table
+            class="widefat striped"
+            id="wctf-giftcard-category-sync-results"
+            style="max-width: 700px;"
+            aria-live="polite"
+            hidden
+        >
+            <tbody>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Synchronization Status', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-category-sync-status"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Total Categories', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-category-total">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Created', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-category-created">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Updated', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-category-updated">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Skipped', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-category-skipped">0</td>
+                </tr>
+                <tr id="wctf-giftcard-category-error-row" hidden>
+                    <th scope="row"><?php esc_html_e( 'Error Message', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-category-error"></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3><?php esc_html_e( 'Gift Card Synchronization', 'wc-topup-fields' ); ?></h3>
+
+        <p>
+            <?php esc_html_e( 'Synchronize cards/SKUs from all locally cached Gift Card categories.', 'wc-topup-fields' ); ?>
+        </p>
+
+        <p>
+            <button type="button" class="button button-secondary" id="wctf-giftcard-sync-cards">
+                <?php esc_html_e( 'Sync Gift Cards', 'wc-topup-fields' ); ?>
+            </button>
+            <span class="spinner" id="wctf-giftcard-sync-cards-spinner" aria-hidden="true"></span>
+        </p>
+
+        <table
+            class="widefat striped"
+            id="wctf-giftcard-card-sync-results"
+            style="max-width: 700px;"
+            aria-live="polite"
+            hidden
+        >
+            <tbody>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Synchronization Status', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-sync-status"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Processed Categories', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-processed-categories">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Total Categories', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-total-categories">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Total Cards', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-total">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Created', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-created">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Updated', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-updated">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Skipped', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-skipped">0</td>
+                </tr>
+                <tr>
+                    <th scope="row"><?php esc_html_e( 'Failed Categories', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-failed-categories">0</td>
+                </tr>
+                <tr id="wctf-giftcard-card-error-row" hidden>
+                    <th scope="row"><?php esc_html_e( 'Error Message', 'wc-topup-fields' ); ?></th>
+                    <td id="wctf-giftcard-card-error"></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3><?php esc_html_e( 'Gift Card Browser', 'wc-topup-fields' ); ?></h3>
+
+        <div id="wctf-giftcard-browser">
+            <div class="tablenav top">
+                <label for="wctf-giftcard-browser-search">
+                    <?php esc_html_e( 'Search Gift Cards', 'wc-topup-fields' ); ?>
+                </label>
+                <input
+                    type="search"
+                    id="wctf-giftcard-browser-search"
+                    class="regular-text"
+                    placeholder="<?php echo esc_attr__( 'Search card, category, ID, price, currency or region', 'wc-topup-fields' ); ?>"
+                >
+
+                <label for="wctf-giftcard-browser-category">
+                    <?php esc_html_e( 'Category', 'wc-topup-fields' ); ?>
+                </label>
+                <select id="wctf-giftcard-browser-category">
+                    <option value=""><?php esc_html_e( 'All Gift Card Categories', 'wc-topup-fields' ); ?></option>
+                    <?php foreach ( $giftcard_browser_category_options as $category_option ) : ?>
+                        <option value="<?php echo esc_attr( $category_option['id'] ); ?>">
+                            <?php
+                            echo esc_html(
+                                '' !== $category_option['name']
+                                    ? $category_option['name'] . ' (' . $category_option['id'] . ')'
+                                    : $category_option['id']
+                            );
+                            ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+
+                <button type="button" class="button button-primary" id="wctf-giftcard-browser-submit">
+                    <?php esc_html_e( 'Search', 'wc-topup-fields' ); ?>
+                </button>
+                <button type="button" class="button" id="wctf-giftcard-browser-reset">
+                    <?php esc_html_e( 'Reset', 'wc-topup-fields' ); ?>
+                </button>
+            </div>
+
+            <div class="notice notice-error inline" id="wctf-giftcard-browser-error" role="alert" hidden>
+                <p id="wctf-giftcard-browser-error-message"></p>
+            </div>
+
+            <div class="notice notice-info inline" id="wctf-giftcard-browser-empty" hidden>
+                <p><?php esc_html_e( 'No matching Gift Cards found.', 'wc-topup-fields' ); ?></p>
+            </div>
+
+            <table class="widefat fixed striped" id="wctf-giftcard-browser-results">
+                <thead>
+                    <tr>
+                        <th scope="col"><?php esc_html_e( 'Category ID', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Category Name', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Card ID', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Card Name', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Price USD', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Currency', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Region', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Stock', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Min', 'wc-topup-fields' ); ?></th>
+                        <th scope="col"><?php esc_html_e( 'Max', 'wc-topup-fields' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody id="wctf-giftcard-browser-rows"></tbody>
+            </table>
+
+            <div class="tablenav bottom" id="wctf-giftcard-browser-pagination">
+                <div class="tablenav-pages">
+                    <span class="displaying-num">
+                        <span id="wctf-giftcard-browser-total-results">0</span>
+                        <?php esc_html_e( 'total results', 'wc-topup-fields' ); ?>
+                    </span>
+                    <button type="button" class="button" id="wctf-giftcard-browser-previous" disabled>
+                        <?php esc_html_e( 'Previous', 'wc-topup-fields' ); ?>
+                    </button>
+                    <span class="paging-input">
+                        <?php esc_html_e( 'Current page', 'wc-topup-fields' ); ?>
+                        <span id="wctf-giftcard-browser-current-page">1</span>
+                        /
+                        <?php esc_html_e( 'Total pages', 'wc-topup-fields' ); ?>
+                        <span id="wctf-giftcard-browser-total-pages">1</span>
+                    </span>
+                    <button type="button" class="button" id="wctf-giftcard-browser-next" disabled>
+                        <?php esc_html_e( 'Next', 'wc-topup-fields' ); ?>
+                    </button>
+                </div>
             </div>
         </div>
     </section>

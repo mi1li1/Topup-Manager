@@ -410,3 +410,49 @@ Verified:
 - WordPress admin_email fallback remains available
 - FazerCards API payload remains unchanged
 - WooCommerce order status remains unchanged
+
+
+
+## Build004 Release1 Task2
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added FazerCards Gift Card catalog provider
+- Added Gift Card category synchronization
+- Added Gift Card cards/SKU synchronization
+- Added separate Gift Card cache options
+- Added Gift Card Browser in API Settings
+- Added search, category filter and pagination for Gift Card Browser
+- Used category_id::card_id composite key to prevent cross-category collisions
+- Kept Gift Card catalog flow separate from existing Service Top-up flow
+
+New files:
+- providers/FazerCards/GiftCardsProvider.php
+- admin/giftcard-settings.php
+- admin/js/giftcard-settings.js
+
+New cache options:
+- wctf_fazercards_giftcard_categories
+- wctf_fazercards_giftcard_offers
+
+New AJAX actions:
+- wctf_sync_fazercards_giftcard_categories
+- wctf_sync_fazercards_giftcard_cards
+- wctf_browse_fazercards_giftcards
+
+Verified:
+- Gift Card section appears in API Settings
+- Sync Gift Card Categories works
+- Sync Gift Cards works
+- Gift Card Browser search/filter/pagination works
+- Gift Card category_id and card_id display correctly
+- Existing Top-up sync, offer browser and automatic submission flow remain unaffected
+
+Safety:
+- No Gift Card purchase endpoint implemented
+- No /giftcards/order call added
+- No Gift Card code/card/PIN storage
+- No customer delivery
+- No WooCommerce order status changes
+- Existing Top-up Provider and order flow unchanged

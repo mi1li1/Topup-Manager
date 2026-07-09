@@ -21,10 +21,12 @@ $includes = [
     'includes/logger.php',
     'includes/request.php',
     'providers/FazerCards/Provider.php',
+    'providers/FazerCards/GiftCardsProvider.php',
 
     // Admin
     'admin/menu.php',
     'admin/settings.php',
+    'admin/giftcard-settings.php',
     'admin/product-fields.php',
     'admin/fazer-fields.php',
 

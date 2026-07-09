@@ -241,3 +241,28 @@
 ### Improved
 - More flexible admin notification routing for failed automatic submissions
 - Email sanitization and duplicate recipient removal
+
+
+
+## Build004 Release1 Task2
+
+### Added
+- FazerCards Gift Card catalog provider
+- Gift Card category synchronization
+- Gift Card cards/SKU synchronization
+- Separate Gift Card cache options
+- Gift Card Browser in API Settings
+- Search, category filter and pagination for Gift Card Browser
+
+### Safety
+- Gift Card catalog is separated from Service Top-up flow
+- Gift Card purchase endpoint is not implemented
+- No Gift Card codes, PINs or redeem URLs are stored
+- No customer delivery is implemented
+- Existing Top-up automatic submission flow is unchanged
+
+### Verified
+- Gift Card Categories sync completed successfully
+- Gift Cards sync completed successfully
+- Gift Card Browser works correctly
+- Existing Service Top-up features remain unaffected
