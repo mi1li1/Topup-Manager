@@ -115,7 +115,7 @@ function wctf_fazercards_giftcard_store_secret_payload( $item, $order_payload, $
  * Retrieve and authenticated-decrypt an order item's Gift Card secret payload.
  *
  * Callers that expose decrypted data must enforce strict administrator
- * authorization and auditing. This task adds no such display path.
+ * authorization and auditing.
  *
  * @param WC_Order_Item_Product $item WooCommerce order line item.
  * @return array|WP_Error
@@ -140,6 +140,64 @@ function wctf_fazercards_giftcard_get_secret_payload( $item ) {
         $envelope,
         $context_ids['order_id'],
         $context_ids['item_id']
+    );
+}
+
+/**
+ * Retrieve a validated wrapper for admin-only reveal flows.
+ *
+ * The lower-level decrypt helper authenticates the ciphertext, validates the
+ * schema/context, and returns the opaque FazerCards order object. This helper
+ * reattaches the already-validated WooCommerce context for reveal rendering.
+ *
+ * @param WC_Order_Item_Product $item WooCommerce order line item.
+ * @return array|WP_Error
+ */
+function wctf_fazercards_giftcard_get_secret_payload_wrapper( $item ) {
+    $context_ids = wctf_fazercards_giftcard_get_secret_storage_context_ids( $item );
+
+    if ( is_wp_error( $context_ids ) ) {
+        return $context_ids;
+    }
+
+    $order_payload = wctf_fazercards_giftcard_get_secret_payload( $item );
+
+    if ( is_wp_error( $order_payload ) ) {
+        return $order_payload;
+    }
+
+    if ( ! wctf_fazercards_giftcard_is_associative_array( $order_payload ) ) {
+        return new WP_Error(
+            'wctf_giftcard_secret_payload_malformed',
+            __( 'The decrypted Gift Card payload is malformed.', 'wc-topup-fields' )
+        );
+    }
+
+    $captured_at = '';
+    $summary     = $item->get_meta( '_wctf_fazer_giftcard_last_response_summary', true );
+
+    if ( is_string( $summary ) && '' !== $summary ) {
+        $summary_data = json_decode( $summary, true );
+
+        if (
+            JSON_ERROR_NONE === json_last_error()
+            && is_array( $summary_data )
+            && isset( $summary_data['captured_at_utc'] )
+            && is_scalar( $summary_data['captured_at_utc'] )
+        ) {
+            $captured_at = wctf_fazercards_giftcard_limit_safe_summary_string(
+                $summary_data['captured_at_utc'],
+                32
+            );
+        }
+    }
+
+    return array(
+        'schema'                    => 'wctf-giftcard-secret-v1',
+        'woocommerce_order_id'      => absint( $context_ids['order_id'] ),
+        'woocommerce_order_item_id' => absint( $context_ids['item_id'] ),
+        'captured_at_utc'           => $captured_at,
+        'order'                     => $order_payload,
     );
 }
 

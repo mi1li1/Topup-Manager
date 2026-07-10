@@ -39,6 +39,8 @@ $includes = [
     // WooCommerce
     'includes/cart.php',
     'includes/order.php',
+    'includes/giftcard-order.php',
+    'includes/giftcard-reveal.php',
 
 ];
 
