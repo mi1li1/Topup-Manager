@@ -20,6 +20,8 @@ $includes = [
     'includes/config.php',
     'includes/logger.php',
     'includes/request.php',
+    'includes/giftcard-crypto.php',
+    'includes/giftcard-secret-storage.php',
     'providers/FazerCards/Provider.php',
     'providers/FazerCards/GiftCardsProvider.php',
 

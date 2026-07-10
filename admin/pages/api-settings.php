@@ -97,6 +97,28 @@ $failure_alert_recipients = is_scalar( $failure_alert_recipients )
     ? (string) $failure_alert_recipients
     : '';
 
+$giftcard_crypto_status = function_exists( 'wctf_fazercards_giftcard_crypto_status' )
+    ? wctf_fazercards_giftcard_crypto_status()
+    : array(
+        'ready'          => false,
+        'key_configured' => false,
+        'key_valid'      => false,
+        'algorithm'      => 'none',
+        'message'        => __( 'Encrypted Gift Card secret storage is unavailable.', 'wc-topup-fields' ),
+    );
+$giftcard_crypto_algorithm_labels = array(
+    'sodium-secretbox' => __( 'Sodium Secretbox', 'wc-topup-fields' ),
+    'aes-256-gcm'      => __( 'AES-256-GCM', 'wc-topup-fields' ),
+    'none'             => __( 'None', 'wc-topup-fields' ),
+);
+$giftcard_crypto_algorithm = isset( $giftcard_crypto_status['algorithm'] )
+    && isset( $giftcard_crypto_algorithm_labels[ $giftcard_crypto_status['algorithm'] ] )
+        ? $giftcard_crypto_algorithm_labels[ $giftcard_crypto_status['algorithm'] ]
+        : $giftcard_crypto_algorithm_labels['none'];
+$giftcard_crypto_notice_class = ! empty( $giftcard_crypto_status['ready'] )
+    ? 'notice-success'
+    : 'notice-warning';
+
 ?>
 
 <div class="wrap">
@@ -486,6 +508,60 @@ $failure_alert_recipients = is_scalar( $failure_alert_recipients )
         <p>
             <?php esc_html_e( 'Synchronize and browse the read-only FazerCards Gift Card catalog. This section does not purchase Gift Cards.', 'wc-topup-fields' ); ?>
         </p>
+
+        <h3><?php esc_html_e( 'Gift Card Encrypted Storage Readiness', 'wc-topup-fields' ); ?></h3>
+
+        <div
+            class="notice <?php echo esc_attr( $giftcard_crypto_notice_class ); ?> inline"
+            role="status"
+        >
+            <table class="widefat striped" style="max-width: 700px; margin: 12px 0;">
+                <tbody>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Encryption ready', 'wc-topup-fields' ); ?></th>
+                        <td>
+                            <?php echo ! empty( $giftcard_crypto_status['ready'] ) ? esc_html__( 'Yes', 'wc-topup-fields' ) : esc_html__( 'No', 'wc-topup-fields' ); ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Encryption key configured', 'wc-topup-fields' ); ?></th>
+                        <td>
+                            <?php echo ! empty( $giftcard_crypto_status['key_configured'] ) ? esc_html__( 'Yes', 'wc-topup-fields' ) : esc_html__( 'No', 'wc-topup-fields' ); ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Encryption key valid', 'wc-topup-fields' ); ?></th>
+                        <td>
+                            <?php echo ! empty( $giftcard_crypto_status['key_valid'] ) ? esc_html__( 'Yes', 'wc-topup-fields' ) : esc_html__( 'No', 'wc-topup-fields' ); ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Available algorithm', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $giftcard_crypto_algorithm ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Readiness message', 'wc-topup-fields' ); ?></th>
+                        <td>
+                            <?php
+                            echo esc_html(
+                                isset( $giftcard_crypto_status['message'] )
+                                    ? $giftcard_crypto_status['message']
+                                    : __( 'Encrypted Gift Card secret storage is unavailable.', 'wc-topup-fields' )
+                            );
+                            ?>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <?php if ( empty( $giftcard_crypto_status['ready'] ) ) : ?>
+                <p>
+                    <strong>
+                        <?php esc_html_e( 'Gift Card purchases remain disabled until encrypted storage is ready.', 'wc-topup-fields' ); ?>
+                    </strong>
+                </p>
+            <?php endif; ?>
+        </div>
 
         <h3><?php esc_html_e( 'Gift Card Category Synchronization', 'wc-topup-fields' ); ?></h3>
 

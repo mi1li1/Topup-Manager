@@ -342,3 +342,29 @@
 - Gift Card Dry Run displays correct category_id, card_id and quantity
 - No submit button or real purchase action exists
 - Existing Service Top-up order flow remains unaffected
+
+
+
+## Build004 Release1 Task5B
+
+### Added
+- Secure Gift Card encryption and secret-storage foundation
+- Sodium Secretbox authenticated encryption
+- AES-256-GCM fallback support
+- Strict external encryption key validation
+- Context-bound encrypted payload envelopes
+- Safe response summary and code-count helpers
+- Gift Card encrypted storage readiness status in API Settings
+
+### Security
+- Gift Card secrets must use a 32-byte key stored outside the database
+- Missing or invalid encryption configuration fails closed
+- Sensitive payloads cannot be stored as plaintext
+- Encrypted payloads are bound to their WooCommerce order and order item
+- No Gift Card purchase, reveal or customer delivery functionality was added
+
+### Verified
+- Missing-key readiness state works
+- Valid-key readiness state works
+- Sodium Secretbox is available on the production server
+- Existing Service Top-up and Gift Card catalog/order preview functionality remains unchanged

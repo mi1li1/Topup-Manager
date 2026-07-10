@@ -600,3 +600,47 @@ Safety:
 - No customer delivery
 - No WooCommerce order status changes
 - Existing Top-up automatic submission flow unchanged
+
+
+
+## Build004 Release1 Task5B
+
+Status: ✅ Completed and verified
+
+Completed:
+- Added secure Gift Card encryption foundation
+- Added authenticated encrypted order-item secret storage helpers
+- Added strict 32-byte Base64 encryption key validation
+- Added Sodium Secretbox encryption with AES-256-GCM fallback
+- Added order and order-item context binding
+- Added self-describing encrypted envelope format
+- Added safe Gift Card response summary helper
+- Added non-recursive Gift Card code count detection
+- Added Gift Card encrypted storage readiness display in API Settings
+- Added fail-closed behavior when encryption is not ready
+
+New files:
+- includes/giftcard-crypto.php
+- includes/giftcard-secret-storage.php
+
+Modified files:
+- wc-topup-fields.php
+- admin/pages/api-settings.php
+
+Verified:
+- Missing encryption key reports Not Ready
+- Invalid or missing key disables future Gift Card purchasing
+- Valid 32-byte Base64 key reports Ready
+- Server supports Sodium Secretbox
+- Encryption key value is not displayed or stored in the database
+- docs/openapi.json remains outside Git tracking
+- Existing Gift Card and Service Top-up flows remain unchanged
+
+Safety:
+- No /giftcards/order call
+- No Gift Card purchase button
+- No real Gift Card code storage
+- No reveal or customer delivery
+- No plaintext secrets in meta, logs, notes or emails
+- No WooCommerce order status changes
+- Existing Service Top-up submission logic unchanged
