@@ -13,6 +13,16 @@ add_action(
     'admin_post_wctf_fazercards_giftcard_refresh_order',
     'wctf_handle_fazercards_giftcard_refresh_order'
 );
+add_action(
+    'admin_post_wctf_fazercards_giftcard_start_auto_refresh_retry',
+    'wctf_handle_fazercards_giftcard_start_auto_refresh_retry'
+);
+add_action(
+    'wctf_fazercards_giftcard_auto_refresh_retry',
+    'wctf_run_fazercards_giftcard_auto_refresh_retry',
+    10,
+    2
+);
 
 /**
  * Register the manual REAL Gift Card purchase meta box for classic and HPOS.
@@ -235,6 +245,42 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
         $status_may_need_refresh = $has_secret
             && ( null === $codes_count_value || 0 === $codes_count_value )
             && in_array( sanitize_key( $remote_status ), array( 'created', 'pending' ), true );
+        $fulfillment_status      = wctf_normalize_fazercards_giftcard_fulfillment_status(
+            $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
+        );
+        $ready_to_deliver        = wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id );
+        $auto_refresh_attempts   = absint( $item->get_meta( '_wctf_fazer_giftcard_auto_refresh_attempts', true ) );
+        $auto_refresh_max        = wctf_get_fazercards_giftcard_auto_refresh_max_attempts( $item );
+        $next_refresh_at         = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_next_refresh_at', true ),
+            32
+        );
+        $last_refresh_at         = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_last_refresh_at', true ),
+            32
+        );
+        $last_refresh_error      = wctf_sanitize_fazercards_giftcard_purchase_error(
+            $item->get_meta( '_wctf_fazer_giftcard_last_refresh_error', true ),
+            500
+        );
+        $queue_backend          = wctf_get_fazercards_giftcard_auto_refresh_queue_backend();
+        $has_future_retry       = wctf_has_scheduled_fazercards_giftcard_auto_refresh_retry(
+            $order_id,
+            $item_id
+        );
+        $queue_event_status     = wctf_get_fazercards_giftcard_auto_refresh_event_status(
+            $fulfillment_status,
+            $has_future_retry,
+            $auto_refresh_attempts
+        );
+        $can_start_auto_refresh  = '' !== $remote_order_id
+            && $remote_order_id_valid
+            && ( null === $codes_count_value || 0 === $codes_count_value )
+            && $crypto_ready
+            && current_user_can( 'manage_woocommerce' )
+            && current_user_can( 'edit_shop_order', $order_id )
+            && $auto_refresh_attempts < $auto_refresh_max
+            && ! $ready_to_deliver;
 
         ?>
         <section class="wctf-fazercards-giftcard-purchase-item">
@@ -314,6 +360,38 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
                         <td><?php echo esc_html( $codes_count ); ?></td>
                     </tr>
                     <tr>
+                        <th scope="row"><?php esc_html_e( 'Fulfillment status', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( wctf_get_fazercards_giftcard_fulfillment_status_label( $fulfillment_status ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Ready to deliver', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $ready_to_deliver ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Queue backend', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $queue_backend ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Queue event status', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $queue_event_status ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Auto refresh attempts', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( absint( $auto_refresh_attempts ) . ' / ' . absint( $auto_refresh_max ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Next refresh at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $next_refresh_at ? $next_refresh_at : __( 'Not scheduled', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Last refresh at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $last_refresh_at ? $last_refresh_at : __( 'Not refreshed by queue', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Last safe refresh error', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $last_refresh_error ); ?></td>
+                    </tr>
+                    <tr>
                         <th scope="row"><?php esc_html_e( 'Reveal count', 'wc-topup-fields' ); ?></th>
                         <td><?php echo esc_html( $reveal_count ); ?></td>
                     </tr>
@@ -331,6 +409,17 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
                     </tr>
                 </tbody>
             </table>
+
+            <?php if ( 'queued' === $fulfillment_status && ! $has_future_retry ) : ?>
+                <p class="notice notice-warning inline">
+                    <?php
+                    esc_html_e(
+                        'Auto refresh retry is marked queued but no future retry action is currently scheduled. Use Resume Auto Refresh Retry.',
+                        'wc-topup-fields'
+                    );
+                    ?>
+                </p>
+            <?php endif; ?>
 
             <?php if ( ! empty( $reasons ) ) : ?>
                 <div class="notice notice-warning inline" role="alert">
@@ -525,6 +614,35 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
                     </p>
                 </div>
             <?php endif; ?>
+
+            <?php if ( $can_start_auto_refresh ) : ?>
+                <?php
+                $queue_item_id = absint( $item_id );
+                $queue_nonce   = wp_create_nonce(
+                    'wctf_start_fazercards_giftcard_auto_refresh_' . $order_id . '_' . $queue_item_id
+                );
+                $queue_label   = in_array( $fulfillment_status, array( 'queued', 'refreshing', 'needs_admin_review', 'stopped' ), true )
+                    ? __( 'Resume Auto Refresh Retry', 'wc-topup-fields' )
+                    : __( 'Start Auto Refresh Retry', 'wc-topup-fields' );
+                ?>
+
+                <div class="wctf-fazercards-giftcard-auto-refresh-controls">
+                    <p><strong><?php esc_html_e( 'Gift Card Auto Refresh Retry', 'wc-topup-fields' ); ?></strong></p>
+                    <p><?php esc_html_e( 'This schedules safe read-only remote refresh attempts. It does not purchase again, reveal codes, or deliver to the customer.', 'wc-topup-fields' ); ?></p>
+                    <p>
+                        <button
+                            type="button"
+                            class="button wctf-fazercards-giftcard-auto-refresh-button"
+                            data-action-url="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+                            data-order-id="<?php echo esc_attr( $order_id ); ?>"
+                            data-item-id="<?php echo esc_attr( $queue_item_id ); ?>"
+                            data-nonce="<?php echo esc_attr( $queue_nonce ); ?>"
+                        >
+                            <?php echo esc_html( $queue_label ); ?>
+                        </button>
+                    </p>
+                </div>
+            <?php endif; ?>
         </section>
         <?php
     }
@@ -694,6 +812,30 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
             addField( form, 'nonce', button.getAttribute( 'data-nonce' ) || '' );
             addField( form, 'refresh_confirmed', '1' );
             addField( form, 'refresh_confirmation_text', confirmation.value );
+
+            document.body.appendChild( form );
+            form.submit();
+        } );
+
+        document.addEventListener( 'click', function( event ) {
+            var button = event.target.closest
+                ? event.target.closest( '.wctf-fazercards-giftcard-auto-refresh-button' )
+                : null;
+
+            if ( ! button ) {
+                return;
+            }
+
+            event.preventDefault();
+
+            var form = document.createElement( 'form' );
+            form.method = 'post';
+            form.action = button.getAttribute( 'data-action-url' );
+
+            addField( form, 'action', 'wctf_fazercards_giftcard_start_auto_refresh_retry' );
+            addField( form, 'order_id', button.getAttribute( 'data-order-id' ) || '' );
+            addField( form, 'item_id', button.getAttribute( 'data-item-id' ) || '' );
+            addField( form, 'nonce', button.getAttribute( 'data-nonce' ) || '' );
 
             document.body.appendChild( form );
             form.submit();
@@ -1446,6 +1588,12 @@ function wctf_handle_fazercards_giftcard_purchase_item() {
 
                             unset( $auto_refresh_result );
                         }
+
+                        wctf_maybe_update_fazercards_giftcard_fulfillment_after_refresh(
+                            $order,
+                            $item_id,
+                            true
+                        );
                     }
 
                     unset( $safe_order, $stored );
@@ -1666,7 +1814,138 @@ function wctf_handle_fazercards_giftcard_refresh_order() {
         'manual'
     );
 
+    wctf_maybe_update_fazercards_giftcard_fulfillment_after_refresh(
+        $order,
+        $item_id,
+        false
+    );
+
     wctf_finish_fazercards_giftcard_refresh_action( $order, $result );
+}
+
+/**
+ * Schedule or resume Gift Card auto-refresh retry from the admin order screen.
+ *
+ * This action only schedules a read-only future refresh. It never calls the
+ * remote API directly.
+ *
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_start_auto_refresh_retry() {
+    $order_id = isset( $_POST['order_id'] ) && is_scalar( $_POST['order_id'] )
+        ? absint( wp_unslash( $_POST['order_id'] ) )
+        : 0;
+    $item_id  = isset( $_POST['item_id'] ) && is_scalar( $_POST['item_id'] )
+        ? absint( wp_unslash( $_POST['item_id'] ) )
+        : 0;
+
+    if ( 1 > $order_id || 1 > $item_id ) {
+        wp_die(
+            esc_html__( 'A valid order and order item are required.', 'wc-topup-fields' ),
+            esc_html__( 'Invalid Gift Card auto refresh', 'wc-topup-fields' ),
+            array( 'response' => 400 )
+        );
+    }
+
+    $request_method = isset( $_SERVER['REQUEST_METHOD'] ) && is_scalar( $_SERVER['REQUEST_METHOD'] )
+        ? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) )
+        : '';
+
+    if ( 'POST' !== $request_method ) {
+        wp_die(
+            esc_html__( 'Gift Card auto refresh scheduling requires a POST request.', 'wc-topup-fields' ),
+            esc_html__( 'Invalid Gift Card auto refresh', 'wc-topup-fields' ),
+            array( 'response' => 405 )
+        );
+    }
+
+    if ( ! current_user_can( 'manage_woocommerce' ) ) {
+        wp_die(
+            esc_html__( 'WooCommerce management permission is required.', 'wc-topup-fields' ),
+            esc_html__( 'Access denied', 'wc-topup-fields' ),
+            array( 'response' => 403 )
+        );
+    }
+
+    $order = wc_get_order( $order_id );
+
+    if ( ! $order instanceof WC_Order ) {
+        wp_die(
+            esc_html__( 'The WooCommerce order could not be found.', 'wc-topup-fields' ),
+            esc_html__( 'Order not found', 'wc-topup-fields' ),
+            array( 'response' => 404 )
+        );
+    }
+
+    if ( ! current_user_can( 'edit_shop_order', $order_id ) ) {
+        wp_die(
+            esc_html__( 'You are not allowed to edit this WooCommerce order.', 'wc-topup-fields' ),
+            esc_html__( 'Access denied', 'wc-topup-fields' ),
+            array( 'response' => 403 )
+        );
+    }
+
+    $nonce = isset( $_POST['nonce'] ) && is_string( $_POST['nonce'] )
+        ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) )
+        : '';
+
+    if (
+        '' === $nonce
+        || ! wp_verify_nonce(
+            $nonce,
+            'wctf_start_fazercards_giftcard_auto_refresh_' . $order_id . '_' . $item_id
+        )
+    ) {
+        wctf_finish_fazercards_giftcard_refresh_action(
+            $order,
+            array(
+                'type'    => 'error',
+                'item_id' => $item_id,
+                'message' => __( 'The Gift Card auto refresh request reached the server, but the security nonce was invalid. No retry was scheduled.', 'wc-topup-fields' ),
+            )
+        );
+    }
+
+    $item = $order->get_item( $item_id );
+
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        wctf_finish_fazercards_giftcard_refresh_action(
+            $order,
+            array(
+                'type'    => 'error',
+                'item_id' => $item_id,
+                'message' => __( 'The selected order item does not belong to this order.', 'wc-topup-fields' ),
+            )
+        );
+    }
+
+    $scheduled = wctf_schedule_fazercards_giftcard_auto_refresh_retry(
+        $order,
+        $item,
+        $item_id,
+        60,
+        false
+    );
+
+    if ( is_wp_error( $scheduled ) ) {
+        wctf_finish_fazercards_giftcard_refresh_action(
+            $order,
+            array(
+                'type'    => 'error',
+                'item_id' => $item_id,
+                'message' => $scheduled->get_error_message(),
+            )
+        );
+    }
+
+    wctf_finish_fazercards_giftcard_refresh_action(
+        $order,
+        array(
+            'type'    => 'success',
+            'item_id' => $item_id,
+            'message' => __( 'Gift Card auto-refresh retry was scheduled. No remote API call was made by this button.', 'wc-topup-fields' ),
+        )
+    );
 }
 
 /**
@@ -1687,7 +1966,8 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
     $order_id        = $order instanceof WC_Order ? absint( $order->get_id() ) : 0;
     $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string( $remote_order_id, 191 );
     $context         = sanitize_key( $context );
-    $is_auto_context = 'auto_after_purchase' === $context;
+    $is_auto_context  = 'auto_after_purchase' === $context;
+    $is_queue_context = 'auto_retry' === $context;
 
     $result = array(
         'type'            => 'error',
@@ -1697,6 +1977,7 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
         'remote_order_id' => $remote_order_id,
         'remote_status'   => '',
         'codes_count'     => null,
+        'attempted'       => false,
     );
 
     if ( ! $order instanceof WC_Order || ! $item instanceof WC_Order_Item_Product ) {
@@ -1753,6 +2034,7 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
         }
 
         $provider = new WCTF_FazerCards_GiftCards_Provider();
+        $result['attempted'] = true;
         $response = $provider->get_order( $remote_order_id );
 
         if ( is_array( $response ) ) {
@@ -1856,7 +2138,7 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
                         $safe_order['remote_order_id'],
                         'purchased' === $final_status ? 'refreshed' : 'still pending'
                     );
-                } else {
+                } elseif ( ! $is_queue_context ) {
                     wctf_add_fazercards_giftcard_refresh_note(
                         $order,
                         $item_id,
@@ -1874,6 +2156,7 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
                     'remote_order_id' => $safe_order['remote_order_id'],
                     'remote_status'   => $safe_order['remote_status'],
                     'codes_count'     => isset( $safe_order['codes_count'] ) ? $safe_order['codes_count'] : null,
+                    'attempted'       => true,
                 );
             }
 
@@ -2128,6 +2411,786 @@ function wctf_should_fazercards_giftcard_auto_refresh_after_purchase( $safe_orde
     }
 
     return in_array( $remote_status, array( 'created', 'pending', 'processing' ), true );
+}
+
+/**
+ * Normalize Gift Card fulfillment status.
+ *
+ * @param mixed $status Raw status.
+ * @return string
+ */
+function wctf_normalize_fazercards_giftcard_fulfillment_status( $status ) {
+    $status = is_scalar( $status ) ? sanitize_key( (string) $status ) : '';
+
+    if ( '' === $status ) {
+        return 'not_started';
+    }
+
+    $allowed = array(
+        'not_started',
+        'queued',
+        'refreshing',
+        'ready_to_deliver',
+        'needs_admin_review',
+        'stopped',
+    );
+
+    return in_array( $status, $allowed, true ) ? $status : 'not_started';
+}
+
+/**
+ * Return readable Gift Card fulfillment status label.
+ *
+ * @param mixed $status Raw status.
+ * @return string
+ */
+function wctf_get_fazercards_giftcard_fulfillment_status_label( $status ) {
+    $labels = array(
+        'not_started'        => __( 'Not started', 'wc-topup-fields' ),
+        'queued'             => __( 'Queued', 'wc-topup-fields' ),
+        'refreshing'         => __( 'Refreshing', 'wc-topup-fields' ),
+        'ready_to_deliver'   => __( 'Ready to deliver', 'wc-topup-fields' ),
+        'needs_admin_review' => __( 'Needs admin review', 'wc-topup-fields' ),
+        'stopped'            => __( 'Stopped', 'wc-topup-fields' ),
+    );
+    $status = wctf_normalize_fazercards_giftcard_fulfillment_status( $status );
+
+    return $labels[ $status ];
+}
+
+/**
+ * Return filterable Gift Card auto-refresh retry intervals in seconds.
+ *
+ * @return array
+ */
+function wctf_get_fazercards_giftcard_auto_refresh_intervals() {
+    $intervals = array(
+        1  * MINUTE_IN_SECONDS,
+        2  * MINUTE_IN_SECONDS,
+        5  * MINUTE_IN_SECONDS,
+        10 * MINUTE_IN_SECONDS,
+        15 * MINUTE_IN_SECONDS,
+        30 * MINUTE_IN_SECONDS,
+    );
+    $filtered  = apply_filters( 'wctf_fazercards_giftcard_auto_refresh_intervals', $intervals );
+
+    if ( ! is_array( $filtered ) || empty( $filtered ) ) {
+        return $intervals;
+    }
+
+    $clean = array();
+
+    foreach ( $filtered as $interval ) {
+        $interval = absint( $interval );
+
+        if ( 0 < $interval ) {
+            $clean[] = $interval;
+        }
+    }
+
+    return empty( $clean ) ? $intervals : array_values( $clean );
+}
+
+/**
+ * Return filterable max Gift Card auto-refresh attempts.
+ *
+ * @param WC_Order_Item_Product|null $item WooCommerce order item.
+ * @return int
+ */
+function wctf_get_fazercards_giftcard_auto_refresh_max_attempts( $item = null ) {
+    $default  = 6;
+    $filtered = apply_filters(
+        'wctf_fazercards_giftcard_auto_refresh_max_attempts',
+        $default,
+        $item
+    );
+    $max      = absint( $filtered );
+
+    return 0 < $max ? $max : $default;
+}
+
+/**
+ * Get the next retry delay for a one-based attempt number.
+ *
+ * @param int $attempt_number One-based attempt number.
+ * @return int
+ */
+function wctf_get_fazercards_giftcard_auto_refresh_delay( $attempt_number ) {
+    $intervals = wctf_get_fazercards_giftcard_auto_refresh_intervals();
+    $index     = max( 0, absint( $attempt_number ) - 1 );
+
+    if ( isset( $intervals[ $index ] ) ) {
+        return absint( $intervals[ $index ] );
+    }
+
+    return absint( end( $intervals ) );
+}
+
+/**
+ * Determine whether encrypted Gift Card payload is ready for future delivery.
+ *
+ * @param WC_Order              $order   WooCommerce order.
+ * @param WC_Order_Item_Product $item    WooCommerce order item.
+ * @param int                   $item_id WooCommerce order item ID.
+ * @return bool
+ */
+function wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) {
+    if (
+        ! $order instanceof WC_Order
+        || ! $item instanceof WC_Order_Item_Product
+        || ! function_exists( 'wctf_fazercards_giftcard_has_secret_payload' )
+        || ! function_exists( 'wctf_fazercards_giftcard_get_secret_payload_wrapper' )
+        || ! function_exists( 'wctf_fazercards_giftcard_detect_codes_count' )
+    ) {
+        return false;
+    }
+
+    if ( ! wctf_fazercards_giftcard_has_secret_payload( $item ) ) {
+        return false;
+    }
+
+    $wrapper = wctf_fazercards_giftcard_get_secret_payload_wrapper( $item );
+
+    if (
+        is_wp_error( $wrapper )
+        || ! is_array( $wrapper )
+        || absint( isset( $wrapper['woocommerce_order_id'] ) ? $wrapper['woocommerce_order_id'] : 0 ) !== absint( $order->get_id() )
+        || absint( isset( $wrapper['woocommerce_order_item_id'] ) ? $wrapper['woocommerce_order_item_id'] : 0 ) !== absint( $item_id )
+        || empty( $wrapper['order'] )
+        || ! is_array( $wrapper['order'] )
+    ) {
+        return false;
+    }
+
+    $codes_count = wctf_fazercards_giftcard_detect_codes_count( $wrapper['order'] );
+
+    return null !== $codes_count && 0 < absint( $codes_count );
+}
+
+/**
+ * Persist one fulfillment status update.
+ *
+ * @param WC_Order_Item_Product $item   WooCommerce order item.
+ * @param string                $status Fulfillment status.
+ * @param string                $error  Safe error.
+ * @return WC_Order_Item_Product|WP_Error
+ */
+function wctf_save_fazercards_giftcard_fulfillment_state( $item, $status, $error = '' ) {
+    if ( ! $item instanceof WC_Order_Item_Product || 1 > absint( $item->get_id() ) ) {
+        return new WP_Error(
+            'wctf_giftcard_fulfillment_state_invalid',
+            __( 'The Gift Card fulfillment state could not be saved.', 'wc-topup-fields' )
+        );
+    }
+
+    $item_id = absint( $item->get_id() );
+    $status  = wctf_normalize_fazercards_giftcard_fulfillment_status( $status );
+    $error   = wctf_sanitize_fazercards_giftcard_purchase_error( $error, 500 );
+
+    try {
+        $item->update_meta_data( '_wctf_fazer_giftcard_fulfillment_status', $status );
+
+        if ( '' === $error ) {
+            $item->delete_meta_data( '_wctf_fazer_giftcard_last_refresh_error' );
+        } else {
+            $item->update_meta_data( '_wctf_fazer_giftcard_last_refresh_error', $error );
+        }
+
+        if ( 'ready_to_deliver' === $status ) {
+            $now = sanitize_text_field( current_time( 'mysql', true ) );
+            $item->update_meta_data( '_wctf_fazer_giftcard_ready_to_deliver_at', $now );
+            $item->update_meta_data( '_wctf_fazer_giftcard_queue_completed_at', $now );
+            $item->delete_meta_data( '_wctf_fazer_giftcard_next_refresh_at' );
+        } elseif ( 'needs_admin_review' === $status || 'stopped' === $status ) {
+            $item->update_meta_data(
+                '_wctf_fazer_giftcard_queue_completed_at',
+                sanitize_text_field( current_time( 'mysql', true ) )
+            );
+            $item->delete_meta_data( '_wctf_fazer_giftcard_next_refresh_at' );
+        }
+
+        $item->save_meta_data();
+
+        return new WC_Order_Item_Product( $item_id );
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+
+        return new WP_Error(
+            'wctf_giftcard_fulfillment_state_failed',
+            __( 'The Gift Card fulfillment state could not be persisted safely.', 'wc-topup-fields' )
+        );
+    }
+}
+
+/**
+ * Save only a safe short auto-refresh error.
+ *
+ * @param WC_Order_Item_Product $item  WooCommerce order item.
+ * @param string                $error Safe error.
+ * @return void
+ */
+function wctf_save_fazercards_giftcard_auto_refresh_error( $item, $error ) {
+    if ( ! $item instanceof WC_Order_Item_Product || 1 > absint( $item->get_id() ) ) {
+        return;
+    }
+
+    $error = wctf_sanitize_fazercards_giftcard_purchase_error( $error, 500 );
+
+    try {
+        if ( '' === $error ) {
+            $item->delete_meta_data( '_wctf_fazer_giftcard_last_refresh_error' );
+        } else {
+            $item->update_meta_data( '_wctf_fazer_giftcard_last_refresh_error', $error );
+        }
+
+        $item->save_meta_data();
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+    }
+}
+
+/**
+ * Mark an item ready for future delivery if the encrypted payload qualifies.
+ *
+ * @param WC_Order              $order   WooCommerce order.
+ * @param WC_Order_Item_Product $item    WooCommerce order item.
+ * @param int                   $item_id WooCommerce order item ID.
+ * @return bool
+ */
+function wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) {
+    if ( ! wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+        return false;
+    }
+
+    $saved_item = wctf_save_fazercards_giftcard_fulfillment_state(
+        $item,
+        'ready_to_deliver',
+        ''
+    );
+
+    return ! is_wp_error( $saved_item );
+}
+
+/**
+ * Return the Gift Card retry queue backend label.
+ *
+ * @return string
+ */
+function wctf_get_fazercards_giftcard_auto_refresh_queue_backend() {
+    return function_exists( 'as_schedule_single_action' )
+        ? __( 'Action Scheduler', 'wc-topup-fields' )
+        : __( 'WP-Cron fallback', 'wc-topup-fields' );
+}
+
+/**
+ * Return a safe Gift Card retry event status label for admin diagnostics.
+ *
+ * @param string $fulfillment_status Current fulfillment status.
+ * @param bool   $has_future_retry   Whether a pending retry event exists.
+ * @param int    $attempts           Completed remote GET attempts.
+ * @return string
+ */
+function wctf_get_fazercards_giftcard_auto_refresh_event_status( $fulfillment_status, $has_future_retry, $attempts ) {
+    $fulfillment_status = wctf_normalize_fazercards_giftcard_fulfillment_status( $fulfillment_status );
+
+    if ( 'needs_admin_review' === $fulfillment_status ) {
+        return __( 'Needs admin review', 'wc-topup-fields' );
+    }
+
+    if ( $has_future_retry ) {
+        return __( 'Future retry scheduled', 'wc-topup-fields' );
+    }
+
+    if ( 0 < absint( $attempts ) ) {
+        return __( 'Last action completed', 'wc-topup-fields' );
+    }
+
+    return __( 'No future retry scheduled', 'wc-topup-fields' );
+}
+
+/**
+ * Return whether a pending retry is already scheduled for an order item.
+ *
+ * A currently running Action Scheduler action is intentionally excluded so the
+ * worker can enqueue the next future retry before the current action completes.
+ *
+ * @param int  $order_id              WooCommerce order ID.
+ * @param int  $item_id               WooCommerce order item ID.
+ * @param bool $ignore_current_action Whether to ignore older Action Scheduler APIs that cannot distinguish pending from running.
+ * @return bool
+ */
+function wctf_has_scheduled_fazercards_giftcard_auto_refresh_retry( $order_id, $item_id, $ignore_current_action = false ) {
+    $args = array(
+        'order_id' => absint( $order_id ),
+        'item_id'  => absint( $item_id ),
+    );
+
+    if ( function_exists( 'as_get_scheduled_actions' ) ) {
+        try {
+            $pending_actions = as_get_scheduled_actions(
+                array(
+                    'hook'     => 'wctf_fazercards_giftcard_auto_refresh_retry',
+                    'args'     => $args,
+                    'group'    => 'wctf-giftcards',
+                    'status'   => 'pending',
+                    'per_page' => 1,
+                ),
+                'ids'
+            );
+
+            return is_array( $pending_actions ) && ! empty( $pending_actions );
+        } catch ( Throwable $throwable ) {
+            unset( $throwable );
+        }
+    }
+
+    if ( function_exists( 'as_next_scheduled_action' ) && ! $ignore_current_action ) {
+        $next_action = as_next_scheduled_action(
+            'wctf_fazercards_giftcard_auto_refresh_retry',
+            $args,
+            'wctf-giftcards'
+        );
+
+        return null !== $next_action && false !== $next_action;
+    }
+
+    return false !== wp_next_scheduled(
+        'wctf_fazercards_giftcard_auto_refresh_retry',
+        $args
+    );
+}
+
+/**
+ * Schedule one Gift Card auto-refresh retry without duplicating events.
+ *
+ * @param WC_Order              $order      WooCommerce order.
+ * @param WC_Order_Item_Product $item       WooCommerce order item.
+ * @param int                   $item_id    WooCommerce order item ID.
+ * @param int                   $delay      Delay in seconds.
+ * @param bool                  $reset      Whether to reset exhausted/stopped attempts.
+ * @param bool                  $from_worker Whether scheduling is occurring inside the running retry worker.
+ * @return true|WP_Error
+ */
+function wctf_schedule_fazercards_giftcard_auto_refresh_retry(
+    $order,
+    $item,
+    $item_id,
+    $delay = 60,
+    $reset = false,
+    $from_worker = false
+) {
+    if ( ! $order instanceof WC_Order || ! $item instanceof WC_Order_Item_Product ) {
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_context_invalid',
+            __( 'A valid Gift Card order item is required before scheduling auto refresh.', 'wc-topup-fields' )
+        );
+    }
+
+    $order_id = absint( $order->get_id() );
+    $item_id  = absint( $item_id );
+    $owned    = $order->get_item( $item_id );
+
+    if ( ! $owned instanceof WC_Order_Item_Product || absint( $owned->get_id() ) !== absint( $item->get_id() ) ) {
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_item_mismatch',
+            __( 'The selected order item does not belong to this order.', 'wc-topup-fields' )
+        );
+    }
+
+    if ( 'giftcard' !== sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) ) ) {
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_not_giftcard',
+            __( 'Only Gift Card order items can enter the auto-refresh queue.', 'wc-topup-fields' )
+        );
+    }
+
+    $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string(
+        $item->get_meta( '_wctf_fazer_giftcard_remote_order_id', true ),
+        191
+    );
+
+    if ( 1 !== preg_match( '/\Aord-[0-9]+\z/D', $remote_order_id ) ) {
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_remote_id_invalid',
+            __( 'A valid stored FazerCards remote order ID is required before scheduling auto refresh.', 'wc-topup-fields' )
+        );
+    }
+
+    $crypto_status = function_exists( 'wctf_fazercards_giftcard_crypto_status' )
+        ? wctf_fazercards_giftcard_crypto_status()
+        : array();
+
+    if ( empty( $crypto_status['ready'] ) ) {
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_crypto_not_ready',
+            __( 'Gift Card encryption is not ready, so auto refresh cannot be scheduled safely.', 'wc-topup-fields' )
+        );
+    }
+
+    if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+        wctf_save_fazercards_giftcard_fulfillment_state( $item, 'ready_to_deliver', '' );
+        return true;
+    }
+
+    $stored_codes_count = $item->get_meta( '_wctf_fazer_giftcard_codes_count', true );
+    $codes_count_value  = $item->meta_exists( '_wctf_fazer_giftcard_codes_count' )
+        && is_scalar( $stored_codes_count )
+        && 1 === preg_match( '/\A[0-9]+\z/D', (string) $stored_codes_count )
+            ? absint( $stored_codes_count )
+            : null;
+
+    if ( null !== $codes_count_value && 0 < $codes_count_value ) {
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_codes_present_but_unverified',
+            __( 'Gift Card codes appear to exist, but encrypted payload verification did not pass. Admin review is required.', 'wc-topup-fields' )
+        );
+    }
+
+    if ( wctf_has_scheduled_fazercards_giftcard_auto_refresh_retry( $order_id, $item_id, $from_worker ) ) {
+        return true;
+    }
+
+    $max_attempts = wctf_get_fazercards_giftcard_auto_refresh_max_attempts( $item );
+    $attempts     = absint( $item->get_meta( '_wctf_fazer_giftcard_auto_refresh_attempts', true ) );
+
+    if ( $reset && $attempts >= $max_attempts ) {
+        $attempts = 0;
+        $item->update_meta_data( '_wctf_fazer_giftcard_auto_refresh_attempts', 0 );
+    }
+
+    if ( $attempts >= $max_attempts ) {
+        wctf_save_fazercards_giftcard_fulfillment_state(
+            $item,
+            'needs_admin_review',
+            __( 'Gift Card auto-refresh attempts are exhausted.', 'wc-topup-fields' )
+        );
+
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_attempts_exhausted',
+            __( 'Gift Card auto-refresh attempts are exhausted. Admin review is required.', 'wc-topup-fields' )
+        );
+    }
+
+    $timestamp = time() + max( 1, absint( $delay ) );
+    $args      = array(
+        'order_id' => $order_id,
+        'item_id'  => $item_id,
+    );
+
+    try {
+        if ( function_exists( 'as_schedule_single_action' ) ) {
+            $scheduled_action_id = as_schedule_single_action(
+                $timestamp,
+                'wctf_fazercards_giftcard_auto_refresh_retry',
+                $args,
+                'wctf-giftcards'
+            );
+
+            if ( 1 > absint( $scheduled_action_id ) ) {
+                throw new RuntimeException( 'Action Scheduler did not create the Gift Card retry action.' );
+            }
+        } else {
+            $scheduled = wp_schedule_single_event(
+                $timestamp,
+                'wctf_fazercards_giftcard_auto_refresh_retry',
+                $args,
+                true
+            );
+
+            if ( is_wp_error( $scheduled ) || true !== $scheduled ) {
+                throw new RuntimeException( 'WP-Cron did not create the Gift Card retry event.' );
+            }
+        }
+
+        $item->update_meta_data( '_wctf_fazer_giftcard_fulfillment_status', 'queued' );
+        $item->update_meta_data( '_wctf_fazer_giftcard_auto_refresh_max_attempts', $max_attempts );
+        $item->update_meta_data(
+            '_wctf_fazer_giftcard_next_refresh_at',
+            sanitize_text_field( gmdate( 'Y-m-d H:i:s', $timestamp ) )
+        );
+        $item->delete_meta_data( '_wctf_fazer_giftcard_queue_completed_at' );
+        $item->save_meta_data();
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_schedule_failed',
+            __( 'Gift Card auto-refresh retry could not be scheduled safely.', 'wc-topup-fields' )
+        );
+    }
+
+    return true;
+}
+
+/**
+ * Update fulfillment after manual purchase/refresh and optionally queue retry.
+ *
+ * @param WC_Order $order               WooCommerce order.
+ * @param int      $item_id             WooCommerce order item ID.
+ * @param bool     $schedule_if_pending Whether to schedule retry when not ready.
+ * @return void
+ */
+function wctf_maybe_update_fazercards_giftcard_fulfillment_after_refresh( $order, $item_id, $schedule_if_pending ) {
+    if ( ! $order instanceof WC_Order ) {
+        return;
+    }
+
+    $item = $order->get_item( absint( $item_id ) );
+
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        return;
+    }
+
+    if ( wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+        wctf_add_fazercards_giftcard_auto_refresh_queue_note(
+            $order,
+            'completed',
+            $item_id,
+            __( 'ready_to_deliver', 'wc-topup-fields' )
+        );
+        return;
+    }
+
+    if ( ! $schedule_if_pending ) {
+        return;
+    }
+
+    $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string(
+        $item->get_meta( '_wctf_fazer_giftcard_remote_order_id', true ),
+        191
+    );
+
+    if ( 1 !== preg_match( '/\Aord-[0-9]+\z/D', $remote_order_id ) ) {
+        return;
+    }
+
+    $scheduled = wctf_schedule_fazercards_giftcard_auto_refresh_retry(
+        $order,
+        $item,
+        $item_id,
+        wctf_get_fazercards_giftcard_auto_refresh_delay( 1 ),
+        false
+    );
+
+    if ( ! is_wp_error( $scheduled ) ) {
+        wctf_add_fazercards_giftcard_auto_refresh_queue_note(
+            $order,
+            'queued',
+            $item_id,
+            ''
+        );
+    }
+}
+
+/**
+ * Scheduled Gift Card auto-refresh retry worker.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @param int $item_id  WooCommerce order item ID.
+ * @return void
+ */
+function wctf_run_fazercards_giftcard_auto_refresh_retry( $order_id, $item_id ) {
+    $order_id = absint( $order_id );
+    $item_id  = absint( $item_id );
+    $order    = wc_get_order( $order_id );
+
+    if ( ! $order instanceof WC_Order ) {
+        return;
+    }
+
+    $item = $order->get_item( $item_id );
+
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        return;
+    }
+
+    if ( 'giftcard' !== sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) ) ) {
+        return;
+    }
+
+    $fulfillment_status = wctf_normalize_fazercards_giftcard_fulfillment_status(
+        $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
+    );
+
+    if ( in_array( $fulfillment_status, array( 'ready_to_deliver', 'stopped' ), true ) ) {
+        return;
+    }
+
+    $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string(
+        $item->get_meta( '_wctf_fazer_giftcard_remote_order_id', true ),
+        191
+    );
+
+    if ( 1 !== preg_match( '/\Aord-[0-9]+\z/D', $remote_order_id ) ) {
+        wctf_save_fazercards_giftcard_fulfillment_state(
+            $item,
+            'needs_admin_review',
+            __( 'Gift Card auto-refresh stopped because the remote order ID is missing or invalid.', 'wc-topup-fields' )
+        );
+        return;
+    }
+
+    $has_secret      = function_exists( 'wctf_fazercards_giftcard_has_secret_payload' )
+        && wctf_fazercards_giftcard_has_secret_payload( $item );
+    $purchase_status = wctf_normalize_fazercards_giftcard_purchase_status(
+        $item->get_meta( '_wctf_fazer_giftcard_purchase_status', true )
+    );
+
+    if ( ! $has_secret && ! in_array( $purchase_status, array( 'pending', 'purchased', 'pending_review' ), true ) ) {
+        wctf_save_fazercards_giftcard_fulfillment_state(
+            $item,
+            'needs_admin_review',
+            __( 'Gift Card auto-refresh stopped because no encrypted payload or pending remote purchase state exists.', 'wc-topup-fields' )
+        );
+        return;
+    }
+
+    $crypto_status = function_exists( 'wctf_fazercards_giftcard_crypto_status' )
+        ? wctf_fazercards_giftcard_crypto_status()
+        : array();
+
+    if ( empty( $crypto_status['ready'] ) ) {
+        wctf_save_fazercards_giftcard_fulfillment_state(
+            $item,
+            'needs_admin_review',
+            __( 'Gift Card encryption is not ready.', 'wc-topup-fields' )
+        );
+        wctf_add_fazercards_giftcard_auto_refresh_queue_note(
+            $order,
+            'review',
+            $item_id,
+            __( 'Encryption is not ready.', 'wc-topup-fields' )
+        );
+        return;
+    }
+
+    if ( wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+        wctf_add_fazercards_giftcard_auto_refresh_queue_note(
+            $order,
+            'completed',
+            $item_id,
+            __( 'ready_to_deliver', 'wc-topup-fields' )
+        );
+        return;
+    }
+
+    $max_attempts = wctf_get_fazercards_giftcard_auto_refresh_max_attempts( $item );
+    $attempts     = absint( $item->get_meta( '_wctf_fazer_giftcard_auto_refresh_attempts', true ) );
+
+    if ( $attempts >= $max_attempts ) {
+        wctf_save_fazercards_giftcard_fulfillment_state(
+            $item,
+            'needs_admin_review',
+            __( 'Gift Card auto-refresh attempts are exhausted.', 'wc-topup-fields' )
+        );
+        wctf_add_fazercards_giftcard_auto_refresh_queue_note(
+            $order,
+            'exhausted',
+            $item_id,
+            ''
+        );
+        return;
+    }
+
+    try {
+        $item->update_meta_data( '_wctf_fazer_giftcard_fulfillment_status', 'refreshing' );
+        $item->update_meta_data( '_wctf_fazer_giftcard_auto_refresh_max_attempts', $max_attempts );
+        $item->delete_meta_data( '_wctf_fazer_giftcard_next_refresh_at' );
+        $item->save_meta_data();
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+        return;
+    }
+
+    $result = wctf_fazercards_giftcard_refresh_remote_order_item(
+        $order,
+        $item,
+        $item_id,
+        $remote_order_id,
+        'auto_retry'
+    );
+    $item   = new WC_Order_Item_Product( $item_id );
+
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        return;
+    }
+
+    if ( is_array( $result ) && ! empty( $result['attempted'] ) ) {
+        $attempts++;
+
+        try {
+            $item->update_meta_data( '_wctf_fazer_giftcard_auto_refresh_attempts', $attempts );
+            $item->update_meta_data(
+                '_wctf_fazer_giftcard_last_refresh_at',
+                sanitize_text_field( current_time( 'mysql', true ) )
+            );
+            $item->save_meta_data();
+            $item = new WC_Order_Item_Product( $item_id );
+        } catch ( Throwable $throwable ) {
+            unset( $throwable );
+            return;
+        }
+    }
+
+    if ( wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+        wctf_add_fazercards_giftcard_auto_refresh_queue_note(
+            $order,
+            'completed',
+            $item_id,
+            __( 'ready_to_deliver', 'wc-topup-fields' )
+        );
+        return;
+    }
+
+    if (
+        is_array( $result )
+        && ! empty( $result['message'] )
+        && isset( $result['type'] )
+        && 'error' === $result['type']
+    ) {
+        wctf_save_fazercards_giftcard_auto_refresh_error( $item, $result['message'] );
+    } elseif ( is_array( $result ) && ! empty( $result['attempted'] ) ) {
+        wctf_save_fazercards_giftcard_auto_refresh_error( $item, '' );
+    }
+
+    if ( $attempts >= $max_attempts ) {
+        wctf_save_fazercards_giftcard_fulfillment_state(
+            $item,
+            'needs_admin_review',
+            __( 'Gift Card auto-refresh attempts are exhausted.', 'wc-topup-fields' )
+        );
+        wctf_add_fazercards_giftcard_auto_refresh_queue_note(
+            $order,
+            'exhausted',
+            $item_id,
+            ''
+        );
+        return;
+    }
+
+    $scheduled = wctf_schedule_fazercards_giftcard_auto_refresh_retry(
+        $order,
+        $item,
+        $item_id,
+        wctf_get_fazercards_giftcard_auto_refresh_delay( $attempts + 1 ),
+        false,
+        true
+    );
+
+    if ( ! is_wp_error( $scheduled ) ) {
+        try {
+            $item->update_meta_data( '_wctf_fazer_giftcard_fulfillment_status', 'queued' );
+            $item->save_meta_data();
+        } catch ( Throwable $throwable ) {
+            unset( $throwable );
+        }
+    } else {
+        wctf_save_fazercards_giftcard_fulfillment_state(
+            $item,
+            'queued',
+            $scheduled->get_error_message()
+        );
+    }
 }
 
 /**
@@ -2714,6 +3777,62 @@ function wctf_add_fazercards_giftcard_auto_refresh_note( $order, $item_id, $remo
         $remote_order_id,
         $result
     );
+
+    $order->add_order_note( $note, 0, false );
+}
+
+/**
+ * Add a private lifecycle note for the Gift Card auto-refresh queue.
+ *
+ * @param WC_Order $order   WooCommerce order.
+ * @param string   $type    Lifecycle note type.
+ * @param int      $item_id WooCommerce order item ID.
+ * @param string   $detail  Safe detail.
+ * @return void
+ */
+function wctf_add_fazercards_giftcard_auto_refresh_queue_note( $order, $type, $item_id, $detail = '' ) {
+    if ( ! $order instanceof WC_Order ) {
+        return;
+    }
+
+    $type    = sanitize_key( $type );
+    $item_id = absint( $item_id );
+    $detail  = wctf_limit_fazercards_giftcard_purchase_string( $detail, 120 );
+
+    if ( 'queued' === $type ) {
+        $note = sprintf(
+            /* translators: %d: WooCommerce order item ID. */
+            __( 'Gift Card auto-refresh queued for item #%d.', 'wc-topup-fields' ),
+            $item_id
+        );
+    } elseif ( 'completed' === $type ) {
+        $note = sprintf(
+            /* translators: 1: item ID, 2: safe result. */
+            __( "Gift Card auto-refresh completed for item #%1\$d.\nResult: %2\$s", 'wc-topup-fields' ),
+            $item_id,
+            '' !== $detail ? $detail : 'ready_to_deliver'
+        );
+    } elseif ( 'exhausted' === $type ) {
+        $note = sprintf(
+            /* translators: %d: WooCommerce order item ID. */
+            __( 'Gift Card auto-refresh exhausted for item #%d. Admin review required.', 'wc-topup-fields' ),
+            $item_id
+        );
+    } elseif ( 'review' === $type ) {
+        $note = sprintf(
+            /* translators: 1: item ID, 2: safe detail. */
+            __( "Gift Card auto-refresh requires admin review for item #%1\$d.\n%2\$s", 'wc-topup-fields' ),
+            $item_id,
+            $detail
+        );
+    } else {
+        $note = sprintf(
+            /* translators: 1: item ID, 2: safe detail. */
+            __( "Gift Card auto-refresh still pending for item #%1\$d.\n%2\$s", 'wc-topup-fields' ),
+            $item_id,
+            $detail
+        );
+    }
 
     $order->add_order_note( $note, 0, false );
 }
