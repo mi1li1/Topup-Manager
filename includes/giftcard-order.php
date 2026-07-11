@@ -3432,13 +3432,29 @@ function wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $i
         return false;
     }
 
+    $was_ready = 'ready_to_deliver' === wctf_normalize_fazercards_giftcard_fulfillment_status(
+        $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
+    );
+
     $saved_item = wctf_save_fazercards_giftcard_fulfillment_state(
         $item,
         'ready_to_deliver',
         ''
     );
 
-    return ! is_wp_error( $saved_item );
+    if ( is_wp_error( $saved_item ) ) {
+        return false;
+    }
+
+    if ( ! $was_ready && $order instanceof WC_Order ) {
+        do_action(
+            'wctf_fazercards_giftcard_ready_to_deliver',
+            absint( $order->get_id() ),
+            absint( $item_id )
+        );
+    }
+
+    return true;
 }
 
 /**
@@ -3598,7 +3614,7 @@ function wctf_schedule_fazercards_giftcard_auto_refresh_retry(
     }
 
     if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
-        wctf_save_fazercards_giftcard_fulfillment_state( $item, 'ready_to_deliver', '' );
+        wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id );
         return true;
     }
 
