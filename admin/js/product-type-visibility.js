@@ -39,6 +39,65 @@
 		return '';
 	}
 
+	function hasCompleteGiftCardBinding() {
+		var categoryIdInput = document.getElementById( '_wctf_fazer_giftcard_category_id' );
+		var cardIdInput = document.getElementById( '_wctf_fazer_giftcard_card_id' );
+		var cardKeyInput = document.getElementById( '_wctf_fazer_giftcard_offer_key' );
+		var categoryId = categoryIdInput ? categoryIdInput.value.trim() : '';
+		var cardId = cardIdInput ? cardIdInput.value.trim() : '';
+		var cardKey = cardKeyInput ? cardKeyInput.value.trim() : '';
+
+		return '' !== categoryId &&
+			'' !== cardId &&
+			'' !== cardKey &&
+			categoryId + '::' + cardId === cardKey;
+	}
+
+	function updateGiftCardAutoPurchaseControl() {
+		var wrapper = document.getElementById( 'wctf-fazer-giftcard-auto-purchase-field' );
+		var checkbox = document.getElementById( '_wctf_fazer_giftcard_auto_purchase_enabled' );
+		var bindingRequired = document.getElementById( 'wctf-fazer-giftcard-auto-purchase-binding-required' );
+		var topupTypeSelector = document.getElementById( '_topup_type' );
+		var productTypeSelector = document.getElementById( 'product-type' );
+		var isGiftCardProduct = productTypeSelector &&
+			'simple' === productTypeSelector.value &&
+			'giftcard' === getSelectedTopupType( topupTypeSelector );
+		var hasBinding = isGiftCardProduct && hasCompleteGiftCardBinding();
+
+		if ( ! wrapper || ! checkbox ) {
+			return;
+		}
+
+		if ( ! isGiftCardProduct ) {
+			checkbox.checked = false;
+			checkbox.disabled = true;
+			wrapper.hidden = true;
+			wrapper.style.display = 'none';
+			wrapper.setAttribute( 'aria-hidden', 'true' );
+
+			if ( bindingRequired ) {
+				bindingRequired.hidden = false;
+			}
+
+			return;
+		}
+
+		wrapper.hidden = false;
+		wrapper.style.display = '';
+		wrapper.setAttribute( 'aria-hidden', 'false' );
+		checkbox.disabled = ! hasBinding;
+
+		if ( ! hasBinding ) {
+			checkbox.checked = false;
+		}
+
+		if ( bindingRequired ) {
+			bindingRequired.hidden = hasBinding;
+		}
+	}
+
+	window.wctfUpdateGiftCardAutoPurchaseControl = updateGiftCardAutoPurchaseControl;
+
 	function applyVisibility() {
 		var selector = document.getElementById( '_topup_type' );
 		var selectedType = getSelectedTopupType( selector );
@@ -55,17 +114,13 @@
 
 		if ( 'giftcard' === selectedType ) {
 			showPanel( panels.giftcard );
-			return;
-		}
-
-		if ( 'game' === selectedType ) {
+		} else if ( 'game' === selectedType ) {
 			showPanel( panels.topup );
-			return;
-		}
-
-		if ( 'account' === selectedType ) {
+		} else if ( 'account' === selectedType ) {
 			showPanel( panels.account );
 		}
+
+		updateGiftCardAutoPurchaseControl();
 	}
 
 	function applyVisibilitySoon() {
@@ -83,10 +138,21 @@
 			selector.addEventListener( 'change', applyVisibilitySoon );
 		}
 
+		document.addEventListener( 'wctf:giftcard-binding-changed', updateGiftCardAutoPurchaseControl );
+
 		document.addEventListener( 'change', function ( event ) {
 			var target = event.target;
 
-			if ( target && ( 'product-type' === target.id || '_topup_type' === target.id ) ) {
+			if (
+				target &&
+				(
+					'product-type' === target.id ||
+					'_topup_type' === target.id ||
+					'_wctf_fazer_giftcard_category_id' === target.id ||
+					'_wctf_fazer_giftcard_card_id' === target.id ||
+					'_wctf_fazer_giftcard_offer_key' === target.id
+				)
+			) {
 				applyVisibilitySoon();
 			}
 		} );

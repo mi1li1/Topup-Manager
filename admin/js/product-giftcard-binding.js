@@ -75,6 +75,14 @@
 		results.setAttribute( 'aria-busy', loading ? 'true' : 'false' );
 	}
 
+	function notifyAutoPurchaseControl() {
+		if ( 'function' === typeof window.wctfUpdateGiftCardAutoPurchaseControl ) {
+			window.wctfUpdateGiftCardAutoPurchaseControl();
+		}
+
+		document.dispatchEvent( new CustomEvent( 'wctf:giftcard-binding-changed' ) );
+	}
+
 	function updateSelection( card ) {
 		var hasCard = card &&
 			'' !== normalizeValue( card.card_key ) &&
@@ -97,6 +105,7 @@
 		selectedStock.textContent = hasCard ? normalizeValue( card.stock ) : '';
 		selectedMinQuantity.textContent = hasCard ? normalizeValue( card.min_order_quantity ) : '';
 		selectedMaxQuantity.textContent = hasCard ? normalizeValue( card.max_order_quantity ) : '';
+		notifyAutoPurchaseControl();
 	}
 
 	function createField( label, value ) {
@@ -239,4 +248,6 @@
 		clearResults();
 		setStatus( getMessage( 'cleared', 'Gift Card binding cleared. Save the product to apply this change.' ) );
 	} );
+
+	notifyAutoPurchaseControl();
 }() );

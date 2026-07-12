@@ -307,6 +307,38 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
             && current_user_can( 'edit_shop_order', $order_id )
             && $auto_refresh_attempts < $auto_refresh_max
             && ! $ready_to_deliver;
+        $global_auto_purchase_enabled = 'yes' === get_option(
+            'wctf_fazercards_giftcard_auto_purchase_enabled',
+            'no'
+        );
+        $snapshot_auto_purchase_enabled = 'yes' === (string) $item->get_meta(
+            '_wctf_fazer_giftcard_auto_purchase_enabled_snapshot',
+            true
+        );
+        $auto_purchase_opted_in = wctf_fazercards_giftcard_is_auto_purchase_opted_in(
+            $order,
+            $item,
+            $item_id
+        );
+        $auto_purchase_eligible = $auto_purchase_opted_in
+            && 'not_purchased' === $status
+            && ! empty( $readiness['ready'] );
+        $purchase_context = sanitize_key(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_purchase_context', true )
+        );
+        $purchase_context = in_array( $purchase_context, array( 'manual', 'automatic' ), true )
+            ? $purchase_context
+            : '';
+        $auto_purchase_trigger = sanitize_key(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_auto_purchase_trigger', true )
+        );
+        $auto_purchase_trigger = in_array( $auto_purchase_trigger, array( 'processing', 'completed' ), true )
+            ? $auto_purchase_trigger
+            : '';
+        $auto_purchase_attempted_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_auto_purchase_attempted_at', true ),
+            32
+        );
 
         ?>
         <section class="wctf-fazercards-giftcard-purchase-item">
@@ -364,6 +396,34 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Purchase status', 'wc-topup-fields' ); ?></th>
                         <td><strong><?php echo esc_html( wctf_get_fazercards_giftcard_purchase_status_label( $status ) ); ?></strong></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Global automatic purchase enabled', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $global_auto_purchase_enabled ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Product snapshot automatic purchase enabled', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $snapshot_auto_purchase_enabled ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Automatic purchase eligible', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $auto_purchase_eligible ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Purchase context', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $purchase_context ? $purchase_context : __( 'Not available', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Automatic purchase trigger', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $auto_purchase_trigger ? $auto_purchase_trigger : __( 'Not available', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Automatic purchase attempted', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $auto_purchase_attempted_at ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Automatic purchase attempted at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $auto_purchase_attempted_at ? $auto_purchase_attempted_at : __( 'Not available', 'wc-topup-fields' ) ); ?></td>
                     </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Encryption ready', 'wc-topup-fields' ); ?></th>
@@ -949,14 +1009,6 @@ function wctf_get_fazercards_giftcard_purchase_readiness( $order, $item, $item_i
         return $result;
     }
 
-    if ( ! current_user_can( 'manage_woocommerce' ) ) {
-        $result['reasons'][] = __( 'WooCommerce management permission is required.', 'wc-topup-fields' );
-    }
-
-    if ( ! current_user_can( 'edit_shop_order', $order_id ) ) {
-        $result['reasons'][] = __( 'Permission to edit this order is required.', 'wc-topup-fields' );
-    }
-
     $required_helpers = array(
         'wctf_fazercards_giftcard_crypto_status',
         'wctf_fazercards_giftcard_store_secret_payload',
@@ -1154,6 +1206,34 @@ function wctf_get_fazercards_giftcard_purchase_readiness( $order, $item, $item_i
 }
 
 /**
+ * Determine whether global and immutable item-level auto-purchase opt-ins match.
+ *
+ * Missing item snapshots deliberately evaluate to false for old orders. This
+ * helper is read-only and never changes purchase status or writes an error.
+ *
+ * @param WC_Order              $order   WooCommerce order.
+ * @param WC_Order_Item_Product $item    WooCommerce order line item.
+ * @param int                   $item_id WooCommerce order item ID.
+ * @return bool
+ */
+function wctf_fazercards_giftcard_is_auto_purchase_opted_in( $order, $item, $item_id ) {
+    if (
+        ! $order instanceof WC_Order
+        || ! $item instanceof WC_Order_Item_Product
+        || absint( $item_id ) !== absint( $item->get_id() )
+        || absint( $order->get_id() ) !== absint( $item->get_order_id() )
+        || 'yes' !== get_option( 'wctf_fazercards_giftcard_auto_purchase_enabled', 'no' )
+    ) {
+        return false;
+    }
+
+    return 'yes' === (string) $item->get_meta(
+        '_wctf_fazer_giftcard_auto_purchase_enabled_snapshot',
+        true
+    );
+}
+
+/**
  * Normalize a WooCommerce quantity without truncating fractional values.
  *
  * @param mixed $quantity Raw WooCommerce quantity.
@@ -1235,6 +1315,18 @@ function wctf_get_fazercards_giftcard_purchase_status_label( $status ) {
  * @return void
  */
 function wctf_handle_fazercards_giftcard_purchase_item() {
+    $request_method = isset( $_SERVER['REQUEST_METHOD'] ) && is_scalar( $_SERVER['REQUEST_METHOD'] )
+        ? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) )
+        : '';
+
+    if ( 'POST' !== $request_method ) {
+        wp_die(
+            esc_html__( 'Gift Card purchase requires a POST request.', 'wc-topup-fields' ),
+            esc_html__( 'Invalid Gift Card purchase', 'wc-topup-fields' ),
+            array( 'response' => 405 )
+        );
+    }
+
     $order_id = isset( $_POST['order_id'] ) && is_scalar( $_POST['order_id'] )
         ? absint( wp_unslash( $_POST['order_id'] ) )
         : 0;
@@ -1333,39 +1425,193 @@ function wctf_handle_fazercards_giftcard_purchase_item() {
         );
     }
 
+    $result = wctf_fazercards_giftcard_purchase_order_item(
+        $order,
+        $item,
+        $item_id,
+        'manual',
+        ''
+    );
+
+    wctf_finish_fazercards_giftcard_purchase_action( $order, $result );
+}
+
+/**
+ * Return a strictly normalized, secret-free shared purchase result.
+ *
+ * @param array  $result    Internal safe result.
+ * @param int    $item_id   WooCommerce order item ID.
+ * @param string $context   manual or automatic.
+ * @param string $trigger   processing, completed, or empty.
+ * @param bool   $attempted Whether a remote purchase request was attempted.
+ * @return array
+ */
+function wctf_get_fazercards_giftcard_safe_purchase_helper_result( $result, $item_id, $context, $trigger, $attempted ) {
+    $item_id     = absint( $item_id );
+    $context     = 'automatic' === sanitize_key( $context ) ? 'automatic' : 'manual';
+    $trigger     = in_array( sanitize_key( $trigger ), array( 'processing', 'completed' ), true )
+        ? sanitize_key( $trigger )
+        : '';
+    $result_type = isset( $result['result_type'] ) ? sanitize_key( (string) $result['result_type'] ) : 'error';
+
+    if ( ! in_array( $result_type, array( 'success', 'warning', 'error' ), true ) ) {
+        $result_type = 'error';
+    }
+
+    $stored_item     = 0 < $item_id ? new WC_Order_Item_Product( $item_id ) : false;
+    $remote_order_id = $stored_item instanceof WC_Order_Item_Product
+        ? wctf_limit_fazercards_giftcard_purchase_string(
+            $stored_item->get_meta( '_wctf_fazer_giftcard_remote_order_id', true ),
+            191
+        )
+        : '';
+    $remote_status   = $stored_item instanceof WC_Order_Item_Product
+        ? wctf_limit_fazercards_giftcard_purchase_string(
+            $stored_item->get_meta( '_wctf_fazer_giftcard_remote_status', true ),
+            100
+        )
+        : '';
+
+    return array(
+        'result_type'             => $result_type,
+        'status'                  => wctf_normalize_fazercards_giftcard_purchase_status(
+            isset( $result['status'] ) ? $result['status'] : ''
+        ),
+        'message'                 => wctf_sanitize_fazercards_giftcard_purchase_error(
+            isset( $result['message'] ) ? $result['message'] : '',
+            500
+        ),
+        'item_id'                 => $item_id,
+        'remote_order_id'         => $remote_order_id,
+        'remote_status'           => $remote_status,
+        'remote_request_attempted' => (bool) $attempted,
+        'context'                 => $context,
+        'trigger'                 => 'automatic' === $context ? $trigger : '',
+    );
+}
+
+/**
+ * Execute the shared, locked Gift Card purchase sequence.
+ *
+ * This helper returns only safe summary fields. The opaque remote order exists
+ * only long enough to be persisted through authenticated encrypted storage.
+ *
+ * @param WC_Order              $order   WooCommerce order.
+ * @param WC_Order_Item_Product $item    WooCommerce order line item.
+ * @param int                   $item_id WooCommerce order item ID.
+ * @param string                $context manual or automatic.
+ * @param string                $trigger processing, completed, or empty.
+ * @return array
+ */
+function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, $context = 'manual', $trigger = '' ) {
+    $requested_context = sanitize_key( $context );
+    $context_valid     = in_array( $requested_context, array( 'manual', 'automatic' ), true );
+    $context           = $context_valid ? $requested_context : 'manual';
+    $trigger  = in_array( sanitize_key( $trigger ), array( 'processing', 'completed' ), true )
+        ? sanitize_key( $trigger )
+        : '';
+    $order_id = $order instanceof WC_Order ? absint( $order->get_id() ) : 0;
+    $item_id  = absint( $item_id );
+    $attempted = false;
+    $result    = array(
+        'result_type' => 'error',
+        'item_id'     => $item_id,
+        'status'      => 'not_purchased',
+        'message'     => __( 'The Gift Card purchase was not completed.', 'wc-topup-fields' ),
+    );
+
+    if ( ! $context_valid ) {
+        $result['message'] = __( 'A valid Gift Card purchase context is required.', 'wc-topup-fields' );
+        return wctf_get_fazercards_giftcard_safe_purchase_helper_result(
+            $result,
+            $item_id,
+            $context,
+            $trigger,
+            false
+        );
+    }
+
+    if (
+        ! $order instanceof WC_Order
+        || ! $item instanceof WC_Order_Item_Product
+        || 1 > $order_id
+        || 1 > $item_id
+        || absint( $item->get_order_id() ) !== $order_id
+        || absint( $item->get_id() ) !== $item_id
+    ) {
+        $result['message'] = __( 'A valid WooCommerce Gift Card order item is required.', 'wc-topup-fields' );
+        return wctf_get_fazercards_giftcard_safe_purchase_helper_result(
+            $result,
+            $item_id,
+            $context,
+            $trigger,
+            false
+        );
+    }
+
+    if ( 'automatic' === $context && '' === $trigger ) {
+        $result['message'] = __( 'A valid automatic Gift Card purchase trigger is required.', 'wc-topup-fields' );
+        return wctf_get_fazercards_giftcard_safe_purchase_helper_result(
+            $result,
+            $item_id,
+            $context,
+            $trigger,
+            false
+        );
+    }
+
+    if (
+        'automatic' === $context
+        && ! wctf_fazercards_giftcard_is_auto_purchase_opted_in( $order, $item, $item_id )
+    ) {
+        $result['message'] = __( 'Automatic Gift Card purchase is not opted in for this order item.', 'wc-topup-fields' );
+        return wctf_get_fazercards_giftcard_safe_purchase_helper_result(
+            $result,
+            $item_id,
+            $context,
+            $trigger,
+            false
+        );
+    }
+
     $readiness = wctf_get_fazercards_giftcard_purchase_readiness( $order, $item, $item_id );
 
+    if ( 'automatic' === $context && 'failed' === $readiness['status'] ) {
+        $readiness['reasons'][] = __( 'Failed Gift Card purchases are never retried automatically.', 'wc-topup-fields' );
+        $readiness['ready']     = false;
+    }
+
     if ( empty( $readiness['ready'] ) ) {
-        $message = ! empty( $readiness['reasons'][0] )
+        $result['status']  = isset( $readiness['status'] ) ? $readiness['status'] : 'not_purchased';
+        $result['message'] = ! empty( $readiness['reasons'][0] )
             ? sanitize_text_field( (string) $readiness['reasons'][0] )
             : __( 'This Gift Card order item is not ready for a real purchase.', 'wc-topup-fields' );
 
-        wctf_finish_fazercards_giftcard_purchase_action(
-            $order,
-            array(
-                'result_type' => 'error',
-                'item_id'     => $item_id,
-                'status'      => isset( $readiness['status'] ) ? $readiness['status'] : 'not_purchased',
-                'message'     => $message,
-            )
+        return wctf_get_fazercards_giftcard_safe_purchase_helper_result(
+            $result,
+            $item_id,
+            $context,
+            $trigger,
+            false
         );
     }
 
     $lock_token = wctf_acquire_fazercards_giftcard_purchase_lock( $order_id, $item_id );
 
     if ( is_wp_error( $lock_token ) ) {
-        wctf_finish_fazercards_giftcard_purchase_action(
-            $order,
-            array(
-                'result_type' => 'warning',
-                'item_id'     => $item_id,
-                'status'      => isset( $readiness['status'] ) ? $readiness['status'] : 'not_purchased',
-                'message'     => $lock_token->get_error_message(),
-            )
+        $result['result_type'] = 'warning';
+        $result['status']      = isset( $readiness['status'] ) ? $readiness['status'] : 'not_purchased';
+        $result['message']     = $lock_token->get_error_message();
+
+        return wctf_get_fazercards_giftcard_safe_purchase_helper_result(
+            $result,
+            $item_id,
+            $context,
+            $trigger,
+            false
         );
     }
 
-    $attempted              = false;
     $remote_success_received = false;
     $fast_settle_pending    = false;
     $result                 = array(
@@ -1442,6 +1688,18 @@ function wctf_handle_fazercards_giftcard_purchase_item() {
                     throw new RuntimeException( 'The Gift Card provider is unavailable.' );
                 }
 
+                $item->update_meta_data( '_wctf_fazer_giftcard_purchase_context', $context );
+
+                if ( 'automatic' === $context ) {
+                    $item->update_meta_data( '_wctf_fazer_giftcard_auto_purchase_trigger', $trigger );
+                    $item->update_meta_data(
+                        '_wctf_fazer_giftcard_auto_purchase_attempted_at',
+                        sanitize_text_field( current_time( 'mysql', true ) )
+                    );
+                }
+
+                $item->save_meta_data();
+                $item      = new WC_Order_Item_Product( $item_id );
                 $provider  = new WCTF_FazerCards_GiftCards_Provider();
                 $attempted = true;
                 $response  = $provider->create_order(
@@ -1736,11 +1994,17 @@ function wctf_handle_fazercards_giftcard_purchase_item() {
             $order,
             $item,
             $item_id,
-            'manual_purchase'
+            'automatic' === $context ? 'automatic_purchase' : 'manual_purchase'
         );
     }
 
-    wctf_finish_fazercards_giftcard_purchase_action( $order, $result );
+    return wctf_get_fazercards_giftcard_safe_purchase_helper_result(
+        $result,
+        $item_id,
+        $context,
+        $trigger,
+        $attempted
+    );
 }
 
 /**

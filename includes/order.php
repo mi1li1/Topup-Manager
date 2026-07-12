@@ -135,6 +135,11 @@ function wctf_snapshot_fazercards_giftcard_order_item_binding( $item, $cart_item
     }
 
     $product_id = absint( $product->get_id() );
+    $auto_purchase = 'yes' === (string) get_post_meta(
+        $product_id,
+        '_wctf_fazer_giftcard_auto_purchase_enabled',
+        true
+    ) ? 'yes' : 'no';
     $snapshot   = array(
         '_wctf_fazer_item_kind'                        => 'giftcard',
         '_wctf_fazer_giftcard_category_id'             => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_category_id', true ) ),
@@ -147,6 +152,7 @@ function wctf_snapshot_fazercards_giftcard_order_item_binding( $item, $cart_item
         '_wctf_fazer_giftcard_min_quantity'            => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_min_quantity', true ) ),
         '_wctf_fazer_giftcard_max_quantity'            => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_max_quantity', true ) ),
         '_wctf_fazer_giftcard_snapshot_created_at'     => wctf_normalize_fazercards_giftcard_payload_value( current_time( 'mysql', true ) ),
+        '_wctf_fazer_giftcard_auto_purchase_enabled_snapshot' => $auto_purchase,
     );
 
     foreach ( $snapshot as $meta_key => $meta_value ) {

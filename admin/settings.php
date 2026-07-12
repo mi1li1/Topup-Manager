@@ -56,6 +56,15 @@ function wctf_register_settings()
 
     register_setting(
         'wctf_api_settings',
+        'wctf_fazercards_giftcard_auto_purchase_enabled',
+        array(
+            'default'           => 'no',
+            'sanitize_callback' => 'wctf_sanitize_fazercards_giftcard_auto_purchase_enabled',
+        )
+    );
+
+    register_setting(
+        'wctf_api_settings',
         'wctf_fazercards_failure_alert_recipients',
         array(
             'default'           => '',
@@ -73,6 +82,16 @@ function wctf_register_settings()
  */
 function wctf_sanitize_fazercards_auto_submit_enabled( $value ) {
     return is_scalar( $value ) && 'yes' === sanitize_key( (string) $value ) ? 'yes' : 'no';
+}
+
+/**
+ * Normalize the automatic FazerCards Gift Card purchase setting.
+ *
+ * @param mixed $value Submitted setting value.
+ * @return string
+ */
+function wctf_sanitize_fazercards_giftcard_auto_purchase_enabled( $value ) {
+    return is_scalar( $value ) && 'yes' === (string) $value ? 'yes' : 'no';
 }
 
 /**

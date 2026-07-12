@@ -6,6 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 add_action( 'woocommerce_product_options_general_product_data', 'wctf_add_fazercards_giftcard_binding_fields' );
 add_action( 'woocommerce_process_product_meta_simple', 'wctf_save_fazercards_giftcard_binding', 20 );
+add_action( 'woocommerce_process_product_meta', 'wctf_disable_fazercards_giftcard_auto_purchase_for_unsupported_product', 30 );
 add_action( 'admin_enqueue_scripts', 'wctf_enqueue_fazercards_giftcard_product_binding_assets' );
 add_action( 'wp_ajax_wctf_search_fazercards_giftcards_for_product', 'wctf_search_fazercards_giftcards_for_product' );
 
@@ -28,8 +29,12 @@ function wctf_add_fazercards_giftcard_binding_fields() {
     $region       = sanitize_text_field( (string) get_post_meta( $post->ID, '_wctf_fazer_giftcard_region', true ) );
     $min_quantity = sanitize_text_field( (string) get_post_meta( $post->ID, '_wctf_fazer_giftcard_min_quantity', true ) );
     $max_quantity = sanitize_text_field( (string) get_post_meta( $post->ID, '_wctf_fazer_giftcard_max_quantity', true ) );
+    $auto_purchase = 'yes' === (string) get_post_meta( $post->ID, '_wctf_fazer_giftcard_auto_purchase_enabled', true )
+        ? 'yes'
+        : 'no';
     $stock        = '';
     $category_name = '';
+    $has_valid_binding = false;
     $categories   = get_option( 'wctf_fazercards_giftcard_categories', array() );
     $cards        = get_option( 'wctf_fazercards_giftcard_offers', array() );
 
@@ -49,7 +54,16 @@ function wctf_add_fazercards_giftcard_binding_fields() {
         $cached_card = wctf_find_fazercards_cached_giftcard_for_product( $cards, $card_key );
 
         if ( ! empty( $cached_card ) ) {
-            $stock = wctf_get_fazercards_giftcard_product_value( $cached_card, 'stock' );
+            $cached_category_id = wctf_get_fazercards_giftcard_product_value( $cached_card, 'category_id' );
+            $cached_card_id     = wctf_get_fazercards_giftcard_product_value( $cached_card, 'card_id' );
+            $cached_key         = wctf_get_fazercards_giftcard_product_card_key( $cached_category_id, $cached_card_id );
+            $cached_name        = wctf_get_fazercards_giftcard_product_value( $cached_card, 'name' );
+            $has_valid_binding  = '' !== $card_id
+                && $category_id === $cached_category_id
+                && $card_id === $cached_card_id
+                && $card_key === $cached_key
+                && '' !== $cached_name;
+            $stock              = wctf_get_fazercards_giftcard_product_value( $cached_card, 'stock' );
         }
     }
 
@@ -129,6 +143,36 @@ function wctf_add_fazercards_giftcard_binding_fields() {
             </dl>
         </div>
 
+        <p class="form-field" id="wctf-fazer-giftcard-auto-purchase-field">
+            <label for="_wctf_fazer_giftcard_auto_purchase_enabled">
+                <?php esc_html_e( 'Enable Automatic Gift Card Purchase', 'wc-topup-fields' ); ?>
+            </label>
+            <input
+                type="hidden"
+                name="_wctf_fazer_giftcard_auto_purchase_enabled"
+                value="no"
+            >
+            <input
+                type="checkbox"
+                class="checkbox"
+                id="_wctf_fazer_giftcard_auto_purchase_enabled"
+                name="_wctf_fazer_giftcard_auto_purchase_enabled"
+                value="yes"
+                <?php checked( 'yes', $auto_purchase ); ?>
+                <?php disabled( ! $has_valid_binding ); ?>
+            >
+            <span
+                class="description"
+                id="wctf-fazer-giftcard-auto-purchase-binding-required"
+                <?php echo $has_valid_binding ? ' hidden' : ''; ?>
+            >
+                <?php esc_html_e( 'Select a valid FazerCards Gift Card before enabling automatic purchase.', 'wc-topup-fields' ); ?>
+            </span>
+            <span class="description">
+                <strong><?php esc_html_e( 'Warning: this may spend real FazerCards balance and also requires the global Automatic Gift Card Purchase setting.', 'wc-topup-fields' ); ?></strong>
+            </span>
+        </p>
+
         <p class="form-field">
             <span class="description">
                 <?php esc_html_e( 'Warning: saving a Gift Card binding makes this product a FazerCards Gift Card product, not a Service Top-up product.', 'wc-topup-fields' ); ?>
@@ -164,10 +208,13 @@ function wctf_save_fazercards_giftcard_binding( $post_id ) {
     $product = wc_get_product( $post_id );
 
     if ( ! $product || ! $product->is_type( 'simple' ) ) {
+        update_post_meta( $post_id, '_wctf_fazer_giftcard_auto_purchase_enabled', 'no' );
         return;
     }
 
     $topup_type = wctf_get_submitted_topup_type_for_fazercards_giftcard_binding();
+
+    update_post_meta( $post_id, '_wctf_fazer_giftcard_auto_purchase_enabled', 'no' );
 
     if ( 'game' === $topup_type || 'account' === $topup_type ) {
         wctf_clear_fazercards_giftcard_product_binding( $post_id );
@@ -241,6 +288,15 @@ function wctf_save_fazercards_giftcard_binding( $post_id ) {
     update_post_meta( $post_id, '_wctf_fazer_giftcard_region', wctf_get_fazercards_giftcard_product_value( $card, 'region' ) );
     update_post_meta( $post_id, '_wctf_fazer_giftcard_min_quantity', wctf_get_fazercards_giftcard_product_value( $card, 'min_order_quantity' ) );
     update_post_meta( $post_id, '_wctf_fazer_giftcard_max_quantity', wctf_get_fazercards_giftcard_product_value( $card, 'max_order_quantity' ) );
+    update_post_meta(
+        $post_id,
+        '_wctf_fazer_giftcard_auto_purchase_enabled',
+        isset( $_POST['_wctf_fazer_giftcard_auto_purchase_enabled'] )
+            && is_scalar( $_POST['_wctf_fazer_giftcard_auto_purchase_enabled'] )
+            && 'yes' === sanitize_text_field( wp_unslash( $_POST['_wctf_fazer_giftcard_auto_purchase_enabled'] ) )
+                ? 'yes'
+                : 'no'
+    );
 
     wctf_clear_fazercards_topup_product_binding_for_giftcard( $post_id );
 }
@@ -277,9 +333,37 @@ function wctf_clear_fazercards_giftcard_product_binding( $post_id ) {
     delete_post_meta( $post_id, '_wctf_fazer_giftcard_region' );
     delete_post_meta( $post_id, '_wctf_fazer_giftcard_min_quantity' );
     delete_post_meta( $post_id, '_wctf_fazer_giftcard_max_quantity' );
+    update_post_meta( $post_id, '_wctf_fazer_giftcard_auto_purchase_enabled', 'no' );
 
     if ( 'giftcard' === get_post_meta( $post_id, '_wctf_fazer_product_kind', true ) ) {
         delete_post_meta( $post_id, '_wctf_fazer_product_kind' );
+    }
+}
+
+/**
+ * Force Gift Card auto purchase off when the saved product becomes unsupported.
+ *
+ * @param int $post_id Product post ID.
+ * @return void
+ */
+function wctf_disable_fazercards_giftcard_auto_purchase_for_unsupported_product( $post_id ) {
+    if (
+        ! isset( $_POST['wctf_fazercards_giftcard_binding_nonce'] )
+        || ! is_scalar( $_POST['wctf_fazercards_giftcard_binding_nonce'] )
+        || ! wp_verify_nonce(
+            sanitize_text_field( wp_unslash( $_POST['wctf_fazercards_giftcard_binding_nonce'] ) ),
+            'wctf_save_fazercards_giftcard_binding'
+        )
+        || ! current_user_can( 'edit_post', $post_id )
+    ) {
+        return;
+    }
+
+    $product    = wc_get_product( $post_id );
+    $topup_type = wctf_get_submitted_topup_type_for_fazercards_giftcard_binding();
+
+    if ( ! $product instanceof WC_Product || ! $product->is_type( 'simple' ) || 'giftcard' !== $topup_type ) {
+        update_post_meta( $post_id, '_wctf_fazer_giftcard_auto_purchase_enabled', 'no' );
     }
 }
 
