@@ -33,7 +33,7 @@ function wctf_delete_option($key)
  */
 function wctf_plugin_version()
 {
-    return '1.1.0';
+    return '1.2.0';
 }
 
 /**

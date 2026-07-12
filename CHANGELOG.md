@@ -1,3 +1,60 @@
+## 1.2.0 — 2026-07-12
+
+### Build004 Release1 Stable
+
+### Gift Card Catalog and Product Binding
+- Added a separate FazerCards Gift Card catalog provider.
+- Added Gift Card category and card synchronization with isolated local caches.
+- Added separate Gift Card product binding and product-type conditional binding UI.
+- Kept Gift Card and Service Top-up catalog and binding data isolated.
+
+### Gift Card Order Foundation
+- Added immutable Gift Card order-item snapshots and an admin Dry Run preview.
+- Added strict quantity, product-kind, and snapshot validation.
+- Added separate private Gift Card purchase and fulfillment metadata.
+
+### Secure Purchase and Storage
+- Added administrator-initiated Manual REAL Gift Card purchase.
+- Added stable per-item idempotency keys, duplicate-purchase prevention, and purchase/refresh locks.
+- Added authenticated encrypted storage for opaque Gift Card responses.
+- Added Sodium Secretbox encryption with AES-256-GCM fallback.
+- Kept the encryption key outside the WordPress database.
+- No plaintext card codes, PINs, serials, or redeem URLs are stored.
+
+### Admin Recovery and Reveal
+- Added admin-only secure Reveal with safe reveal tracking.
+- Added manual remote-order Refresh and recovery through `GET /api/v2/orders/{orderId}`.
+- Refresh and recovery never create a second Gift Card purchase.
+- Card contents are excluded from order notes and operational metadata.
+
+### Fulfillment Readiness
+- Added one-time post-purchase read-only refresh.
+- Added an Action Scheduler retry queue with WP-Cron fallback, de-duplication, and backoff.
+- Added faster initial retry intervals and a signed Fast Background Settle Worker.
+- Added near-real-time remote-order synchronization.
+- `ready_to_deliver` requires an authenticated encrypted payload containing actual cards or codes.
+
+### Customer Delivery
+- Added authorized Gift Card display on My Account View Order and Thank You / Order Received pages.
+- Added WooCommerce frontend AJAX polling, strict customer/order-key authorization, and no-store/no-cache protection.
+- Added automatic customer Gift Card email delivery after `ready_to_deliver`.
+- Added per-item duplicate email prevention and administrator SEND/RESEND controls.
+- Customer page display remains independent of email delivery status.
+
+### Safety
+- Customer display and email delivery revalidate the encrypted payload and WooCommerce order/item context.
+- The full opaque remote order object is never exposed to customers.
+- No Gift Card secrets are stored in normal metadata, transients, options, notes, or logs.
+- The Gift Card flow never changes WooCommerce order status.
+- Existing Service Top-up behavior remains unchanged.
+
+### Release Boundary
+- Gift Card purchase in v1.2.0 is initiated only through the admin Manual REAL Purchase control.
+- Automatic Gift Card purchase immediately after WooCommerce payment is not included and is reserved for a later release.
+- Customer-triggered purchase and automatic purchase retry are not included.
+
+
+
 ## 1.1.0 — 2026-07-08
 
 ### Added

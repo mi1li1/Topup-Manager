@@ -1,3 +1,54 @@
+## Build004 Release1 Stable — v1.2.0
+
+Status: Stable and verified
+Version: 1.2.0
+Date: 2026-07-12
+
+Completed:
+- Task1 Gift Card API / architecture analysis
+- Task2 Gift Card Catalog / Provider Foundation
+- Task3 Gift Card Product Binding
+- Task3B Product Type Conditional Binding UI
+- Task4 Gift Card Order Snapshot + Dry Run
+- Task5A OpenAPI response contract extraction
+- Task5B Secure Storage Foundation
+- Task5C Manual REAL Purchase
+- Task5D Admin Secure Reveal
+- Task5E Manual Remote Order Refresh / Recovery
+- Task5F One-time post-purchase refresh
+- Task5G Auto Refresh Retry Queue
+- Task5G Fast Initial Retry Intervals
+- Task5G Fast Background Settle Worker
+- Task5H-A Customer Display and Polling
+- Task5H-B Customer Email Delivery
+
+Verified real-world results:
+- Real Gift Card purchase succeeds.
+- FazerCards balance is charged once.
+- One remote order ID is created.
+- Card data is retrieved without manual Refresh.
+- Detected code count becomes 1.
+- `fulfillment_status` becomes `ready_to_deliver`.
+- Admin Reveal displays the card.
+- The customer My Account order page displays the card.
+- Automatic customer email delivery succeeds.
+- Task5H-B was tested and synced to GitHub.
+
+Stable release boundaries:
+- v1.2.0 includes admin Manual REAL Gift Card purchase, encrypted storage, near-real-time remote-order synchronization, customer order-page display, and customer email delivery.
+- Gift Card purchase remains administrator initiated in this release.
+- Customer delivery becomes automatic only after an item reaches `ready_to_deliver`.
+- WooCommerce order status is not changed by the Gift Card flow.
+- Existing Service Top-up behavior remains unchanged.
+
+Next planned work — explicitly excluded from v1.2.0:
+- Automatic Gift Card purchase after paid WooCommerce orders.
+- Product-level automatic Gift Card purchase control.
+- Failure alerts and operational recovery for automatic purchase.
+- Additional customer delivery presentation improvements if required.
+
+
+
 ## Build003 Release5 Final
 
 Status: Stable and verified

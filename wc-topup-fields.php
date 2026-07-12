@@ -3,7 +3,7 @@
 Plugin Name: WC Topup Fields
 Plugin URI: https://yourdomain.com
 Description: WooCommerce 游戏充值输入框插件
-Version: 1.1.0
+Version: 1.2.0
 Author: Your Name
 */
 
