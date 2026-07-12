@@ -31,6 +31,188 @@ add_action(
     'admin_post_nopriv_wctf_fazercards_giftcard_fast_settle',
     'wctf_handle_fazercards_giftcard_fast_settle'
 );
+add_action(
+    'woocommerce_order_status_processing',
+    'wctf_handle_fazercards_giftcard_auto_purchase_processing',
+    30,
+    3
+);
+add_action(
+    'woocommerce_order_status_completed',
+    'wctf_handle_fazercards_giftcard_auto_purchase_completed',
+    30,
+    3
+);
+
+/**
+ * Handle the paid-order Processing transition for automatic Gift Card purchase.
+ *
+ * @param int      $order_id         WooCommerce order ID.
+ * @param WC_Order $order            WooCommerce order, when supplied by the hook.
+ * @param array    $status_transition WooCommerce status transition context.
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_auto_purchase_processing( $order_id, $order = null, $status_transition = array() ) {
+    unset( $status_transition );
+
+    wctf_handle_fazercards_giftcard_auto_purchase( $order_id, $order, 'processing' );
+}
+
+/**
+ * Handle the paid-order Completed transition for automatic Gift Card purchase.
+ *
+ * @param int      $order_id         WooCommerce order ID.
+ * @param WC_Order $order            WooCommerce order, when supplied by the hook.
+ * @param array    $status_transition WooCommerce status transition context.
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_auto_purchase_completed( $order_id, $order = null, $status_transition = array() ) {
+    unset( $status_transition );
+
+    wctf_handle_fazercards_giftcard_auto_purchase( $order_id, $order, 'completed' );
+}
+
+/**
+ * Automatically purchase independently opted-in Gift Card order items.
+ *
+ * All ineligible items are skipped silently. The shared purchase helper remains
+ * authoritative for locking, idempotency, encrypted storage, and the one remote
+ * purchase request.
+ *
+ * @param int           $order_id WooCommerce order ID.
+ * @param WC_Order|null $order    WooCommerce order, when supplied by the hook.
+ * @param string        $trigger  processing or completed.
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_auto_purchase( $order_id, $order = null, $trigger = '' ) {
+    $trigger = sanitize_key( $trigger );
+
+    if (
+        'yes' !== get_option( 'wctf_fazercards_giftcard_auto_purchase_enabled', 'no' )
+        || ! in_array( $trigger, array( 'processing', 'completed' ), true )
+    ) {
+        return;
+    }
+
+    if ( ! $order instanceof WC_Order ) {
+        $order = function_exists( 'wc_get_order' ) ? wc_get_order( absint( $order_id ) ) : false;
+    }
+
+    if ( ! $order instanceof WC_Order || absint( $order->get_id() ) !== absint( $order_id ) ) {
+        return;
+    }
+
+    $order_status = sanitize_key( (string) $order->get_status() );
+    $paid_statuses = function_exists( 'wc_get_is_paid_statuses' )
+        ? array_map( 'sanitize_key', (array) wc_get_is_paid_statuses() )
+        : array( 'processing', 'completed' );
+
+    if (
+        $trigger !== $order_status
+        || ! in_array( $order_status, array( 'processing', 'completed' ), true )
+        || ( ! $order->is_paid() && ! in_array( $order_status, $paid_statuses, true ) )
+    ) {
+        return;
+    }
+
+    foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
+        try {
+            $item_id = absint( $item_id );
+
+            if (
+                ! $item instanceof WC_Order_Item_Product
+                || 1 > $item_id
+                || absint( $item->get_id() ) !== $item_id
+                || absint( $item->get_order_id() ) !== absint( $order->get_id() )
+                || 'giftcard' !== sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) )
+                || ! wctf_fazercards_giftcard_is_auto_purchase_opted_in( $order, $item, $item_id )
+            ) {
+                continue;
+            }
+
+            $purchase_status = wctf_normalize_fazercards_giftcard_purchase_status(
+                $item->get_meta( '_wctf_fazer_giftcard_purchase_status', true )
+            );
+            $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string(
+                $item->get_meta( '_wctf_fazer_giftcard_remote_order_id', true ),
+                191
+            );
+            $prior_attempted_at = wctf_limit_fazercards_giftcard_purchase_string(
+                $item->get_meta( '_wctf_fazer_giftcard_auto_purchase_attempted_at', true ),
+                100
+            );
+            $has_secret = function_exists( 'wctf_fazercards_giftcard_has_secret_payload' )
+                && wctf_fazercards_giftcard_has_secret_payload( $item );
+
+            if (
+                'not_purchased' !== $purchase_status
+                || '' !== $remote_order_id
+                || '' !== $prior_attempted_at
+                || $has_secret
+            ) {
+                continue;
+            }
+
+            $snapshot = function_exists( 'wctf_get_fazercards_giftcard_order_item_snapshot' )
+                ? wctf_get_fazercards_giftcard_order_item_snapshot( $item )
+                : array();
+
+            if (
+                ! is_array( $snapshot )
+                || empty( $snapshot['snapshot_created_at'] )
+                || empty( $snapshot['category_id'] )
+                || empty( $snapshot['card_id'] )
+            ) {
+                continue;
+            }
+
+            $readiness = wctf_get_fazercards_giftcard_purchase_readiness( $order, $item, $item_id );
+
+            if (
+                empty( $readiness['ready'] )
+                || 'not_purchased' !== wctf_normalize_fazercards_giftcard_purchase_status(
+                    isset( $readiness['status'] ) ? $readiness['status'] : ''
+                )
+            ) {
+                continue;
+            }
+
+            wctf_fazercards_giftcard_purchase_order_item(
+                $order,
+                $item,
+                $item_id,
+                'automatic',
+                $trigger
+            );
+        } catch ( Throwable $throwable ) {
+            unset( $throwable );
+
+            try {
+                $stored_item = 0 < $item_id ? new WC_Order_Item_Product( $item_id ) : false;
+
+                if (
+                    $stored_item instanceof WC_Order_Item_Product
+                    && '' !== wctf_limit_fazercards_giftcard_purchase_string(
+                        $stored_item->get_meta( '_wctf_fazer_giftcard_auto_purchase_attempted_at', true ),
+                        100
+                    )
+                ) {
+                    wctf_add_fazercards_giftcard_purchase_note(
+                        $order,
+                        'failed',
+                        $item_id,
+                        '',
+                        '',
+                        '',
+                        'automatic'
+                    );
+                }
+            } catch ( Throwable $note_throwable ) {
+                unset( $note_throwable );
+            }
+        }
+    }
+}
 
 /**
  * Register the manual REAL Gift Card purchase meta box for classic and HPOS.
@@ -1675,19 +1857,23 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
                 if ( is_wp_error( $item ) ) {
                     $result['message'] = $item->get_error_message();
                 } else {
-                    wctf_add_fazercards_giftcard_purchase_note(
-                        $order,
-                        'started',
-                        $item_id,
-                        '',
-                        '',
-                        ''
-                    );
+                    if ( 'manual' === $context ) {
+                        wctf_add_fazercards_giftcard_purchase_note(
+                            $order,
+                            'started',
+                            $item_id,
+                            '',
+                            '',
+                            '',
+                            $context
+                        );
+                    }
 
                 if ( ! class_exists( 'WCTF_FazerCards_GiftCards_Provider' ) ) {
                     throw new RuntimeException( 'The Gift Card provider is unavailable.' );
                 }
 
+                $provider = new WCTF_FazerCards_GiftCards_Provider();
                 $item->update_meta_data( '_wctf_fazer_giftcard_purchase_context', $context );
 
                 if ( 'automatic' === $context ) {
@@ -1699,8 +1885,20 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
                 }
 
                 $item->save_meta_data();
-                $item      = new WC_Order_Item_Product( $item_id );
-                $provider  = new WCTF_FazerCards_GiftCards_Provider();
+                $item = new WC_Order_Item_Product( $item_id );
+
+                if ( 'automatic' === $context ) {
+                    wctf_add_fazercards_giftcard_purchase_note(
+                        $order,
+                        'started',
+                        $item_id,
+                        '',
+                        '',
+                        '',
+                        $context
+                    );
+                }
+
                 $attempted = true;
                 $response  = $provider->create_order(
                     $payload['category_id'],
@@ -1741,7 +1939,8 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
                         $item_id,
                         '',
                         '',
-                        $safe_error
+                        $safe_error,
+                        $context
                     );
 
                     $result = array(
@@ -1792,7 +1991,8 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
                             $item_id,
                             $safe_order['remote_order_id'],
                             $safe_order['remote_status'],
-                            $storage_error
+                            $storage_error,
+                            $context
                         );
 
                         $result = array(
@@ -1854,7 +2054,8 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
                             $item_id,
                             $safe_order['remote_order_id'],
                             $safe_order['remote_status'],
-                            isset( $status_error ) ? $status_error : ''
+                            isset( $status_error ) ? $status_error : '',
+                            $context
                         );
 
                         $result = array(
@@ -1960,16 +2161,19 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
             }
         }
 
-        wctf_add_fazercards_giftcard_purchase_note(
-            $order,
-            $has_secret
-                ? 'pending_review'
-                : ( $remote_success_received ? 'storage_failed' : ( $attempted ? 'uncertain' : 'failed' ) ),
-            $item_id,
-            $catch_remote_order_id,
-            $catch_remote_status,
-            $safe_error
-        );
+        if ( 'manual' === $context || $attempted || $remote_success_received ) {
+            wctf_add_fazercards_giftcard_purchase_note(
+                $order,
+                $has_secret
+                    ? 'pending_review'
+                    : ( $remote_success_received ? 'storage_failed' : ( $attempted ? 'uncertain' : 'failed' ) ),
+                $item_id,
+                $catch_remote_order_id,
+                $catch_remote_status,
+                $safe_error,
+                $context
+            );
+        }
 
         $result = array(
             'result_type' => in_array( $failure_status, array( 'failed', 'storage_failed' ), true )
@@ -4731,20 +4935,41 @@ function wctf_save_fazercards_giftcard_refresh_error( $item, $error ) {
  * @param string   $remote_order_id Safe remote order ID.
  * @param string   $remote_status   Safe remote status.
  * @param string   $error           Safe short error.
+ * @param string   $context         manual or automatic.
  * @return void
  */
-function wctf_add_fazercards_giftcard_purchase_note( $order, $type, $item_id, $remote_order_id = '', $remote_status = '', $error = '' ) {
+function wctf_add_fazercards_giftcard_purchase_note( $order, $type, $item_id, $remote_order_id = '', $remote_status = '', $error = '', $context = 'manual' ) {
     if ( ! $order instanceof WC_Order ) {
         return;
     }
 
     $type            = sanitize_key( $type );
+    $context         = 'automatic' === sanitize_key( $context ) ? 'automatic' : 'manual';
     $item_id         = absint( $item_id );
     $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string( $remote_order_id, 191 );
     $remote_status   = wctf_limit_fazercards_giftcard_purchase_string( $remote_status, 100 );
     $error           = wctf_sanitize_fazercards_giftcard_purchase_error( $error, 500 );
 
-    if ( 'started' === $type ) {
+    if ( 'automatic' === $context && 'started' === $type ) {
+        $note = sprintf(
+            /* translators: %d: WooCommerce order item ID. */
+            __( 'Gift Card automatic purchase started for item #%d.', 'wc-topup-fields' ),
+            $item_id
+        );
+    } elseif ( 'automatic' === $context && in_array( $type, array( 'purchased', 'pending', 'pending_review' ), true ) ) {
+        $note = sprintf(
+            /* translators: 1: WooCommerce order item ID, 2: safe remote order ID. */
+            __( "Gift Card automatic purchase submitted for item #%1\$d.\nRemote order: %2\$s", 'wc-topup-fields' ),
+            $item_id,
+            $remote_order_id
+        );
+    } elseif ( 'automatic' === $context ) {
+        $note = sprintf(
+            /* translators: %d: WooCommerce order item ID. */
+            __( 'Gift Card automatic purchase failed for item #%d. Admin review required.', 'wc-topup-fields' ),
+            $item_id
+        );
+    } elseif ( 'started' === $type ) {
         $note = sprintf(
             /* translators: %d: WooCommerce order item ID. */
             __( 'FazerCards Gift Card purchase started for item #%d.', 'wc-topup-fields' ),
