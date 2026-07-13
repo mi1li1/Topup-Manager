@@ -45,6 +45,14 @@ add_action(
     'admin_post_wctf_fazercards_giftcard_resend_completed_order_email',
     'wctf_handle_fazercards_giftcard_resend_completed_order_email'
 );
+add_action(
+    'admin_post_wctf_fazercards_giftcard_fast_send_completed_email',
+    'wctf_handle_fazercards_giftcard_fast_send_completed_email'
+);
+add_action(
+    'admin_post_nopriv_wctf_fazercards_giftcard_fast_send_completed_email',
+    'wctf_handle_fazercards_giftcard_fast_send_completed_email'
+);
 add_filter(
     'woocommerce_email_enabled_customer_completed_order',
     'wctf_filter_fazercards_giftcard_completed_order_email_enabled',
@@ -1302,6 +1310,244 @@ function wctf_schedule_fazercards_giftcard_completed_order_email( $order, $reaso
 }
 
 /**
+ * Return the transient key for one signed fast-dispatch token hash.
+ *
+ * @param string $token_hash SHA-256 token hash.
+ * @return string
+ */
+function wctf_get_fazercards_giftcard_completed_email_fast_token_key( $token_hash ) {
+    $token_hash = preg_replace( '/[^a-f0-9]/', '', strtolower( (string) $token_hash ) );
+
+    return 'wctf_gc_email_fast_' . substr( $token_hash, 0, 32 );
+}
+
+/**
+ * Determine whether the order-level Completed email send lock is active.
+ *
+ * Stale lock data is deliberately treated as inactive; the authoritative
+ * worker performs its own atomic stale-lock recovery when it starts.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @return bool
+ */
+function wctf_is_fazercards_giftcard_completed_email_lock_active( $order_id ) {
+    $existing = json_decode(
+        (string) get_option( wctf_get_fazercards_giftcard_completed_email_lock_key( $order_id ), '' ),
+        true
+    );
+
+    return is_array( $existing )
+        && isset( $existing['expires_at'] )
+        && (int) $existing['expires_at'] >= time();
+}
+
+/**
+ * Dispatch one signed, non-blocking request to the existing email worker.
+ *
+ * The fallback queue action must already exist before this helper is called.
+ * No customer, Gift Card, email body, or API data is placed in the request.
+ *
+ * @param WC_Order $order  WooCommerce order.
+ * @param string   $reason Safe dispatch reason.
+ * @return array
+ */
+function wctf_dispatch_fazercards_giftcard_completed_email_fast_send( $order, $reason = '' ) {
+    $result = array(
+        'dispatched' => false,
+        'status'     => 'fallback_only',
+    );
+
+    if ( ! $order instanceof WC_Order ) {
+        return $result;
+    }
+
+    $order_id = absint( $order->get_id() );
+    $issued_at = time();
+
+    try {
+        $token = bin2hex( random_bytes( 32 ) );
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+        $token = wp_generate_password( 64, false, false );
+    }
+
+    if ( '' === $token ) {
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_status',
+            'fallback_only'
+        );
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_at',
+            gmdate( 'Y-m-d H:i:s', $issued_at )
+        );
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_last_error',
+            __( 'The fast email dispatch could not be prepared; the fallback queue remains active.', 'wc-topup-fields' )
+        );
+        $order->save();
+        return $result;
+    }
+
+    $token_hash    = hash( 'sha256', $token );
+    $transient_key = wctf_get_fazercards_giftcard_completed_email_fast_token_key( $token_hash );
+    $token_stored  = set_transient(
+        $transient_key,
+        array(
+            'token_hash' => $token_hash,
+            'order_id'   => $order_id,
+            'issued_at'  => $issued_at,
+        ),
+        5 * MINUTE_IN_SECONDS
+    );
+
+    if ( ! $token_stored ) {
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_status',
+            'fallback_only'
+        );
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_at',
+            gmdate( 'Y-m-d H:i:s', $issued_at )
+        );
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_last_error',
+            __( 'The fast email dispatch token could not be stored; the fallback queue remains active.', 'wc-topup-fields' )
+        );
+        $order->save();
+        return $result;
+    }
+
+    $message   = 'v1|' . $order_id . '|' . $issued_at . '|' . $token;
+    $signature = hash_hmac( 'sha256', $message, wp_salt( 'auth' ) );
+    $order->update_meta_data(
+        '_wctf_fazer_giftcard_completed_email_fast_dispatch_status',
+        'dispatched'
+    );
+    $order->update_meta_data(
+        '_wctf_fazer_giftcard_completed_email_fast_dispatch_at',
+        gmdate( 'Y-m-d H:i:s', $issued_at )
+    );
+    $order->delete_meta_data( '_wctf_fazer_giftcard_completed_email_fast_dispatch_last_error' );
+    $order->save();
+
+    $response  = wp_remote_post(
+        admin_url( 'admin-post.php' ),
+        array(
+            'blocking'  => false,
+            'timeout'   => 1,
+            'sslverify' => true,
+            'body'      => array(
+                'action'    => 'wctf_fazercards_giftcard_fast_send_completed_email',
+                'order_id'  => $order_id,
+                'issued_at' => $issued_at,
+                'token'     => $token,
+                'signature' => $signature,
+            ),
+        )
+    );
+
+    if ( is_wp_error( $response ) ) {
+        delete_transient( $transient_key );
+        $order = wc_get_order( $order_id );
+
+        if ( ! $order instanceof WC_Order ) {
+            return $result;
+        }
+
+        $current_fast_status = sanitize_key(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_fast_dispatch_status', true )
+        );
+
+        if ( in_array( $current_fast_status, array( 'running', 'completed' ), true ) ) {
+            return $result;
+        }
+
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_status',
+            'fallback_only'
+        );
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_last_error',
+            __( 'The fast email dispatch request could not be started; the fallback queue remains active.', 'wc-topup-fields' )
+        );
+        $order->save();
+        return $result;
+    }
+
+    unset( $response, $reason );
+    $result['dispatched'] = true;
+    $result['status']     = 'dispatched';
+
+    return $result;
+}
+
+/**
+ * Start fast dispatch only after the fallback action is confirmed pending.
+ *
+ * @param WC_Order $order  WooCommerce order.
+ * @param string   $reason Safe dispatch reason.
+ * @return array
+ */
+function wctf_maybe_dispatch_fazercards_giftcard_completed_email_fast_send( $order, $reason = '' ) {
+    $result = array(
+        'dispatched' => false,
+        'status'     => 'skipped',
+    );
+
+    if (
+        ! $order instanceof WC_Order
+        || ! wctf_fazercards_giftcard_order_has_delivery_items( $order )
+        || 'completed' !== sanitize_key( (string) $order->get_status() )
+        || ! wctf_is_fazercards_giftcard_customer_order_paid( $order )
+    ) {
+        return $result;
+    }
+
+    $order_id = absint( $order->get_id() );
+    $status   = wctf_normalize_fazercards_giftcard_completed_email_status(
+        $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+
+    if (
+        'scheduled' !== $status
+        || wctf_is_fazercards_giftcard_completed_email_lock_active( $order_id )
+    ) {
+        return $result;
+    }
+
+    $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+
+    if ( 'ready' !== $readiness['status'] ) {
+        unset( $readiness );
+        return $result;
+    }
+
+    unset( $readiness );
+    $future_action = wctf_get_fazercards_giftcard_completed_email_future_action( $order_id );
+
+    if ( empty( $future_action['scheduled'] ) ) {
+        return $result;
+    }
+
+    $dispatch_status = sanitize_key(
+        (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_fast_dispatch_status', true )
+    );
+    $dispatched_at   = sanitize_text_field(
+        (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_fast_dispatch_at', true )
+    );
+    $dispatched_time = '' !== $dispatched_at ? strtotime( $dispatched_at . ' UTC' ) : false;
+
+    if (
+        in_array( $dispatch_status, array( 'dispatched', 'running', 'completed', 'fallback_only', 'failed' ), true )
+        && ( false === $dispatched_time || $dispatched_time >= time() - ( 5 * MINUTE_IN_SECONDS ) )
+    ) {
+        return $result;
+    }
+
+    return wctf_dispatch_fazercards_giftcard_completed_email_fast_send( $order, $reason );
+}
+
+/**
  * Coordinate one completed-order or item-ready event.
  *
  * @param WC_Order $order  WooCommerce order.
@@ -1337,7 +1583,13 @@ function wctf_maybe_coordinate_fazercards_giftcard_completed_email( $order, $rea
             return;
         }
 
-        wctf_schedule_fazercards_giftcard_completed_order_email( $order, $reason );
+        $schedule_result = wctf_schedule_fazercards_giftcard_completed_order_email( $order, $reason );
+
+        if ( in_array( $schedule_result['result'], array( 'scheduled', 'already_scheduled' ), true ) ) {
+            wctf_maybe_dispatch_fazercards_giftcard_completed_email_fast_send( $order, $reason );
+        }
+
+        unset( $schedule_result );
     } elseif ( 'blocked' === $readiness['status'] ) {
         wctf_save_fazercards_giftcard_completed_email_state(
             $order,
@@ -1791,6 +2043,173 @@ function wctf_process_fazercards_giftcard_completed_order_email( $order_id, $mod
  */
 function wctf_run_fazercards_giftcard_completed_order_email( $order_id ) {
     wctf_process_fazercards_giftcard_completed_order_email( absint( $order_id ), 'automatic' );
+}
+
+/**
+ * End a fast-dispatch request without exposing validation or worker details.
+ *
+ * @return void
+ */
+function wctf_finish_fazercards_giftcard_completed_email_fast_send_request() {
+    nocache_headers();
+    status_header( 204 );
+    exit;
+}
+
+/**
+ * Validate and run one signed internal fast-dispatch request.
+ *
+ * The one-time token is consumed before the existing automatic worker starts.
+ * The scheduled queue action remains available as the authoritative fallback.
+ *
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_fast_send_completed_email() {
+    $request_method = isset( $_SERVER['REQUEST_METHOD'] ) && is_scalar( $_SERVER['REQUEST_METHOD'] )
+        ? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) )
+        : '';
+
+    if ( 'POST' !== $request_method ) {
+        wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
+    }
+
+    $order_id = isset( $_POST['order_id'] ) && is_scalar( $_POST['order_id'] )
+        ? absint( wp_unslash( $_POST['order_id'] ) )
+        : 0;
+    $issued_at = isset( $_POST['issued_at'] ) && is_scalar( $_POST['issued_at'] )
+        ? absint( wp_unslash( $_POST['issued_at'] ) )
+        : 0;
+    $token = isset( $_POST['token'] ) && is_scalar( $_POST['token'] )
+        ? sanitize_text_field( wp_unslash( $_POST['token'] ) )
+        : '';
+    $signature = isset( $_POST['signature'] ) && is_scalar( $_POST['signature'] )
+        ? strtolower( sanitize_text_field( wp_unslash( $_POST['signature'] ) ) )
+        : '';
+    $now = time();
+
+    if (
+        0 >= $order_id
+        || 0 >= $issued_at
+        || $issued_at > $now + 60
+        || $now - $issued_at > 5 * MINUTE_IN_SECONDS
+        || ! preg_match( '/\A[a-zA-Z0-9]{32,128}\z/', $token )
+        || ! preg_match( '/\A[a-f0-9]{64}\z/', $signature )
+    ) {
+        wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
+    }
+
+    $message            = 'v1|' . $order_id . '|' . $issued_at . '|' . $token;
+    $expected_signature = hash_hmac( 'sha256', $message, wp_salt( 'auth' ) );
+
+    if ( ! hash_equals( $expected_signature, $signature ) ) {
+        wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
+    }
+
+    $token_hash    = hash( 'sha256', $token );
+    $transient_key = wctf_get_fazercards_giftcard_completed_email_fast_token_key( $token_hash );
+    $stored_token  = get_transient( $transient_key );
+
+    if (
+        ! is_array( $stored_token )
+        || ! isset( $stored_token['token_hash'], $stored_token['order_id'], $stored_token['issued_at'] )
+        || ! is_string( $stored_token['token_hash'] )
+        || ! hash_equals( $stored_token['token_hash'], $token_hash )
+        || absint( $stored_token['order_id'] ) !== $order_id
+        || absint( $stored_token['issued_at'] ) !== $issued_at
+    ) {
+        wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
+    }
+
+    $order = wc_get_order( $order_id );
+
+    if (
+        ! $order instanceof WC_Order
+        || ! wctf_fazercards_giftcard_order_has_delivery_items( $order )
+        || 'completed' !== sanitize_key( (string) $order->get_status() )
+        || ! wctf_is_fazercards_giftcard_customer_order_paid( $order )
+    ) {
+        wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
+    }
+
+    $coordinator_status = wctf_normalize_fazercards_giftcard_completed_email_status(
+        $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+
+    if ( in_array( $coordinator_status, array( 'sending', 'sent', 'legacy_delivered' ), true ) ) {
+        wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
+    }
+
+    $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+
+    if ( 'ready' !== $readiness['status'] ) {
+        unset( $readiness );
+        wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
+    }
+
+    unset( $readiness );
+
+    if ( ! delete_transient( $transient_key ) ) {
+        wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
+    }
+
+    $order->update_meta_data(
+        '_wctf_fazer_giftcard_completed_email_fast_dispatch_status',
+        'running'
+    );
+    $order->save();
+
+    try {
+        $worker_result = wctf_process_fazercards_giftcard_completed_order_email(
+            $order_id,
+            'automatic'
+        );
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+        $worker_result = array(
+            'success' => false,
+            'status'  => 'blocked',
+            'message' => __( 'The fast email worker could not complete safely; the fallback queue remains active.', 'wc-topup-fields' ),
+        );
+    }
+
+    $order = wc_get_order( $order_id );
+
+    if ( $order instanceof WC_Order ) {
+        $coordinator_status = wctf_normalize_fazercards_giftcard_completed_email_status(
+            $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+        );
+        $fast_status = 'sent' === $coordinator_status ? 'completed' : 'fallback_only';
+
+        if ( in_array( $coordinator_status, array( 'failed', 'blocked' ), true ) ) {
+            $fast_status = 'failed';
+        }
+
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_status',
+            $fast_status
+        );
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_fast_dispatch_completed_at',
+            gmdate( 'Y-m-d H:i:s' )
+        );
+
+        if ( 'failed' === $fast_status ) {
+            $safe_error = isset( $worker_result['message'] )
+                ? wctf_sanitize_fazercards_giftcard_delivery_error( $worker_result['message'] )
+                : __( 'The fast email worker did not complete successfully.', 'wc-topup-fields' );
+            $order->update_meta_data(
+                '_wctf_fazer_giftcard_completed_email_fast_dispatch_last_error',
+                $safe_error
+            );
+        } else {
+            $order->delete_meta_data( '_wctf_fazer_giftcard_completed_email_fast_dispatch_last_error' );
+        }
+
+        $order->save();
+    }
+
+    unset( $worker_result );
+    wctf_finish_fazercards_giftcard_completed_email_fast_send_request();
 }
 
 /**
@@ -2700,6 +3119,14 @@ function wctf_render_fazercards_giftcard_completed_email_admin_meta_box( $post_o
         'held'    => __( 'Held', 'wc-topup-fields' ),
         'blocked' => __( 'Blocked', 'wc-topup-fields' ),
     );
+    $fast_dispatch_labels = array(
+        'not_started'  => __( 'Not started', 'wc-topup-fields' ),
+        'dispatched'   => __( 'Dispatched', 'wc-topup-fields' ),
+        'running'      => __( 'Running', 'wc-topup-fields' ),
+        'completed'    => __( 'Completed', 'wc-topup-fields' ),
+        'fallback_only' => __( 'Fallback queue only', 'wc-topup-fields' ),
+        'failed'       => __( 'Failed', 'wc-topup-fields' ),
+    );
     $recipient = sanitize_email(
         (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_recipient', true )
     );
@@ -2719,6 +3146,12 @@ function wctf_render_fazercards_giftcard_completed_email_admin_meta_box( $post_o
         : ( isset( $backend_labels[ $future_action['backend'] ] )
             ? $backend_labels[ $future_action['backend'] ]
             : __( 'Not available', 'wc-topup-fields' ) );
+    $fast_dispatch_status = sanitize_key(
+        (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_fast_dispatch_status', true )
+    );
+    $fast_dispatch_status = isset( $fast_dispatch_labels[ $fast_dispatch_status ] )
+        ? $fast_dispatch_status
+        : 'not_started';
     $rows = array(
         __( 'Coordinator status', 'wc-topup-fields' ) => $status_labels[ $status ],
         __( 'Whole-order readiness', 'wc-topup-fields' ) => isset( $readiness_labels[ $readiness['status'] ] )
@@ -2744,10 +3177,20 @@ function wctf_render_fazercards_giftcard_completed_email_admin_meta_box( $post_o
             $order->get_meta( '_wctf_fazer_giftcard_completed_email_schedule_reason', true )
         ),
         __( 'Queue backend', 'wc-topup-fields' ) => $display_backend,
-        __( 'Future action scheduled', 'wc-topup-fields' ) => ! empty( $future_action['scheduled'] )
+        __( 'Fallback Scheduled Action', 'wc-topup-fields' ) => ! empty( $future_action['scheduled'] )
             ? __( 'Yes', 'wc-topup-fields' )
             : __( 'No', 'wc-topup-fields' ),
         __( 'Future action timestamp (UTC)', 'wc-topup-fields' ) => $future_timestamp,
+        __( 'Fast dispatch status', 'wc-topup-fields' ) => $fast_dispatch_labels[ $fast_dispatch_status ],
+        __( 'Fast dispatch attempted at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_fast_dispatch_at', true )
+        ),
+        __( 'Fast dispatch completed at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_fast_dispatch_completed_at', true )
+        ),
+        __( 'Fast dispatch last safe error', 'wc-topup-fields' ) => wctf_sanitize_fazercards_giftcard_delivery_error(
+            $order->get_meta( '_wctf_fazer_giftcard_completed_email_fast_dispatch_last_error', true )
+        ),
         __( 'Last attempt (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
             (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_last_attempt_at', true )
         ),
