@@ -403,6 +403,9 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
         $codes_count         = null === $codes_count_value
             ? __( 'Unknown', 'wc-topup-fields' )
             : (string) $codes_count_value;
+        $required_codes_count = wctf_get_fazercards_giftcard_required_codes_count( $item );
+        $codes_incomplete     = null !== $required_codes_count
+            && ( null === $codes_count_value || $codes_count_value < $required_codes_count );
         $product_name       = sanitize_text_field( $item->get_name() );
         $quantity           = isset( $readiness['quantity'] ) && null !== $readiness['quantity']
             ? $readiness['quantity']
@@ -432,9 +435,7 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
             && current_user_can( 'edit_shop_order', $order_id )
             && function_exists( 'wctf_fazercards_giftcard_store_secret_payload' )
             && ! wctf_is_fazercards_giftcard_purchase_lock_active( $order_id, $item_id );
-        $status_may_need_refresh = $has_secret
-            && ( null === $codes_count_value || 0 === $codes_count_value )
-            && in_array( sanitize_key( $remote_status ), array( 'created', 'pending' ), true );
+        $status_may_need_refresh = $has_secret && $codes_incomplete;
         $fulfillment_status      = wctf_normalize_fazercards_giftcard_fulfillment_status(
             $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
         );
@@ -481,9 +482,70 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
             $item->get_meta( '_wctf_fazer_giftcard_fast_settle_last_error', true ),
             500
         );
+        $fast_settle_dispatched_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_fast_settle_dispatched_at', true ),
+            32
+        );
+        $fast_settle_handler_started_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_fast_settle_handler_started_at', true ),
+            32
+        );
+        $retrieval_source = sanitize_key(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_retrieval_source', true )
+        );
+        $retrieval_source = in_array( $retrieval_source, array( 'initial_purchase', 'manual_refresh', 'direct_after_purchase', 'fast_settle', 'auto_retry', 'customer_assisted_once' ), true )
+            ? $retrieval_source
+            : '';
+        $direct_refresh_attempted_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_direct_refresh_attempted_at', true ),
+            32
+        );
+        $direct_refresh_attempts = min(
+            3,
+            absint( $item->get_meta( '_wctf_fazer_giftcard_direct_refresh_attempts', true ) )
+        );
+        $direct_refresh_completed_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_direct_refresh_completed_at', true ),
+            32
+        );
+        $direct_refresh_result = sanitize_key(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_direct_refresh_result', true )
+        );
+        $direct_refresh_result = in_array( $direct_refresh_result, array( 'ready', 'incomplete_fallback', 'retryable_failure_fallback', 'nonretryable_failure' ), true )
+            ? $direct_refresh_result
+            : '';
+        $fresh_order_read_used = 'yes' === (string) $item->get_meta(
+            '_wctf_fazer_giftcard_fresh_order_read_used',
+            true
+        );
+        $customer_assisted_attempted_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_customer_assisted_refresh_attempted_at', true ),
+            32
+        );
+        $customer_assisted_completed_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_customer_assisted_refresh_completed_at', true ),
+            32
+        );
+        $customer_assisted_result = sanitize_key(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_customer_assisted_refresh_result', true )
+        );
+        $customer_assisted_result = in_array( $customer_assisted_result, array( 'ready', 'incomplete', 'retryable_failure', 'nonretryable_failure' ), true )
+            ? $customer_assisted_result
+            : '';
+        $ready_to_deliver_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_ready_to_deliver_at', true ),
+            32
+        );
+        $ready_action_last_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_ready_action_last_at', true ),
+            32
+        );
+        $ready_action_count = absint(
+            $item->get_meta( '_wctf_fazer_giftcard_ready_action_count', true )
+        );
         $can_start_auto_refresh  = '' !== $remote_order_id
             && $remote_order_id_valid
-            && ( null === $codes_count_value || 0 === $codes_count_value )
+            && $codes_incomplete
             && $crypto_ready
             && current_user_can( 'manage_woocommerce' )
             && current_user_can( 'edit_shop_order', $order_id )
@@ -628,6 +690,10 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
                         <td><?php echo esc_html( $codes_count ); ?></td>
                     </tr>
                     <tr>
+                        <th scope="row"><?php esc_html_e( 'Required code count', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( null === $required_codes_count ? __( 'Invalid quantity', 'wc-topup-fields' ) : (string) $required_codes_count ); ?></td>
+                    </tr>
+                    <tr>
                         <th scope="row"><?php esc_html_e( 'Fulfillment status', 'wc-topup-fields' ); ?></th>
                         <td><?php echo esc_html( wctf_get_fazercards_giftcard_fulfillment_status_label( $fulfillment_status ) ); ?></td>
                     </tr>
@@ -668,6 +734,14 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
                         <td><?php echo esc_html( absint( $fast_settle_attempts ) . ' / 5' ); ?></td>
                     </tr>
                     <tr>
+                        <th scope="row"><?php esc_html_e( 'Fast settle dispatched at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $fast_settle_dispatched_at ? $fast_settle_dispatched_at : __( 'Not dispatched', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Fast settle handler started at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $fast_settle_handler_started_at ? $fast_settle_handler_started_at : __( 'Not started', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
                         <th scope="row"><?php esc_html_e( 'Fast settle started at', 'wc-topup-fields' ); ?></th>
                         <td><?php echo esc_html( '' !== $fast_settle_started_at ? $fast_settle_started_at : __( 'Not started', 'wc-topup-fields' ) ); ?></td>
                     </tr>
@@ -678,6 +752,54 @@ function wctf_render_fazercards_giftcard_purchase_meta_box( $post_or_order_objec
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Fast settle last safe error', 'wc-topup-fields' ); ?></th>
                         <td><?php echo esc_html( $fast_settle_last_error ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Retrieval source', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $retrieval_source ? $retrieval_source : __( 'Not available', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Fresh order read used', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( $fresh_order_read_used ? __( 'Yes', 'wc-topup-fields' ) : __( 'No', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Customer-assisted refresh attempted at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $customer_assisted_attempted_at ? $customer_assisted_attempted_at : __( 'Not attempted', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Customer-assisted refresh completed at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $customer_assisted_completed_at ? $customer_assisted_completed_at : __( 'Not completed', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Customer-assisted refresh result', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $customer_assisted_result ? $customer_assisted_result : __( 'Not available', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Direct refresh attempted at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $direct_refresh_attempted_at ? $direct_refresh_attempted_at : __( 'Not attempted', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Direct refresh attempts', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( absint( $direct_refresh_attempts ) . ' / 3' ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Direct refresh completed at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $direct_refresh_completed_at ? $direct_refresh_completed_at : __( 'Not completed', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Direct refresh result', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $direct_refresh_result ? $direct_refresh_result : __( 'Not available', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Ready at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $ready_to_deliver_at ? $ready_to_deliver_at : __( 'Not ready', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Ready action last at', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( '' !== $ready_action_last_at ? $ready_action_last_at : __( 'Not emitted', 'wc-topup-fields' ) ); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Ready action count', 'wc-topup-fields' ); ?></th>
+                        <td><?php echo esc_html( (string) $ready_action_count ); ?></td>
                     </tr>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Queue fallback status', 'wc-topup-fields' ); ?></th>
@@ -2002,6 +2124,16 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
                             'message'     => $storage_error,
                         );
                     } else {
+                        $diagnostic_item = wctf_save_fazercards_giftcard_retrieval_diagnostics(
+                            new WC_Order_Item_Product( $item_id ),
+                            'initial_purchase'
+                        );
+
+                        if ( ! is_wp_error( $diagnostic_item ) ) {
+                            $item = $diagnostic_item;
+                        }
+
+                        unset( $diagnostic_item );
                         $final_status = wctf_map_fazercards_giftcard_purchase_status( $safe_order );
                         $saved_item   = wctf_save_fazercards_giftcard_purchase_state(
                             $item,
@@ -2065,7 +2197,10 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
                             'message'     => $message,
                         );
 
-                        if ( wctf_should_fazercards_giftcard_auto_refresh_after_purchase( $safe_order ) ) {
+                        if (
+                            'manual' === $context
+                            && wctf_should_fazercards_giftcard_auto_refresh_after_purchase( $safe_order, $item )
+                        ) {
                             $auto_refresh_result = wctf_fazercards_giftcard_refresh_remote_order_item(
                                 $order,
                                 $item,
@@ -2102,11 +2237,17 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
                         $item = new WC_Order_Item_Product( $item_id );
 
                         if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
-                            wctf_maybe_mark_fazercards_giftcard_ready_to_deliver(
+                            $ready_effects = wctf_ensure_fazercards_giftcard_ready_delivery_effects(
                                 $order,
                                 $item,
                                 $item_id
                             );
+
+                            if ( true !== $ready_effects ) {
+                                $fast_settle_pending = true;
+                            }
+
+                            unset( $ready_effects );
                         } else {
                             $fast_settle_pending = true;
                         }
@@ -2194,12 +2335,45 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
 
     if ( $fast_settle_pending ) {
         $item = new WC_Order_Item_Product( $item_id );
-        wctf_maybe_dispatch_fazercards_giftcard_fast_settle(
-            $order,
-            $item,
-            $item_id,
-            'automatic' === $context ? 'automatic_purchase' : 'manual_purchase'
-        );
+
+        if ( 'automatic' === $context ) {
+            wctf_run_fazercards_giftcard_direct_settle_burst(
+                $order,
+                $item,
+                $item_id,
+                wctf_limit_fazercards_giftcard_purchase_string(
+                    $item->get_meta( '_wctf_fazer_giftcard_remote_order_id', true ),
+                    191
+                )
+            );
+            $item = new WC_Order_Item_Product( $item_id );
+        }
+
+        if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+            $ready_effects = wctf_ensure_fazercards_giftcard_ready_delivery_effects(
+                $order,
+                $item,
+                $item_id
+            );
+
+            if ( true !== $ready_effects ) {
+                wctf_maybe_dispatch_fazercards_giftcard_fast_settle(
+                    $order,
+                    $item,
+                    $item_id,
+                    'automatic' === $context ? 'automatic_purchase' : 'manual_purchase'
+                );
+            }
+
+            unset( $ready_effects );
+        } else {
+            wctf_maybe_dispatch_fazercards_giftcard_fast_settle(
+                $order,
+                $item,
+                $item_id,
+                'automatic' === $context ? 'automatic_purchase' : 'manual_purchase'
+            );
+        }
     }
 
     return wctf_get_fazercards_giftcard_safe_purchase_helper_result(
@@ -2209,6 +2383,266 @@ function wctf_fazercards_giftcard_purchase_order_item( $order, $item, $item_id, 
         $trigger,
         $attempted
     );
+}
+
+/**
+ * Run a bounded direct remote-order settle burst after automatic purchase.
+ *
+ * This helper is called only after the purchase lock has been released. It
+ * performs at most three read-only remote-order GETs and never retries a
+ * purchase.
+ *
+ * @param WC_Order              $order           WooCommerce order.
+ * @param WC_Order_Item_Product $item            WooCommerce order item.
+ * @param int                   $item_id         WooCommerce order item ID.
+ * @param string                $remote_order_id Stored remote order ID.
+ * @return array Safe direct-settle result.
+ */
+function wctf_run_fazercards_giftcard_direct_settle_burst( $order, $item, $item_id, $remote_order_id ) {
+    $result = array(
+        'attempted' => false,
+        'attempts'  => 0,
+        'ready'     => false,
+        'result'    => 'nonretryable_failure',
+    );
+
+    if ( ! $order instanceof WC_Order || ! $item instanceof WC_Order_Item_Product ) {
+        return $result;
+    }
+
+    $order_id = absint( $order->get_id() );
+    $item_id  = absint( $item_id );
+    $owned    = $order->get_item( $item_id );
+    $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string( $remote_order_id, 191 );
+
+    if (
+        ! $owned instanceof WC_Order_Item_Product
+        || absint( $owned->get_id() ) !== absint( $item->get_id() )
+        || 'giftcard' !== sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) )
+        || wctf_is_fazercards_giftcard_purchase_lock_active( $order_id, $item_id )
+        || 1 !== preg_match( '/\Aord-[0-9]+\z/D', $remote_order_id )
+    ) {
+        return $result;
+    }
+
+    if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+        if ( true === wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id ) ) {
+            $result['ready']  = true;
+            $result['result'] = 'ready';
+        }
+        return $result;
+    }
+
+    $targets       = array( 0, 2, 5 );
+    $started       = microtime( true );
+    $deadline      = $started + 10;
+    $last_result   = 'incomplete_fallback';
+
+    foreach ( $targets as $target ) {
+        $target_time = $started + absint( $target );
+        $wait        = $target_time - microtime( true );
+
+        if ( 0 < $wait ) {
+            usleep( (int) min( 3000000, floor( $wait * 1000000 ) ) );
+        }
+
+        if ( microtime( true ) >= $deadline ) {
+            break;
+        }
+
+        $item = new WC_Order_Item_Product( $item_id );
+
+        if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+            if ( true === wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id ) ) {
+                $result['ready']  = true;
+                $result['result'] = 'ready';
+            }
+            break;
+        }
+
+        $fulfillment_status = wctf_normalize_fazercards_giftcard_fulfillment_status(
+            $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
+        );
+        $crypto_status = function_exists( 'wctf_fazercards_giftcard_crypto_status' )
+            ? wctf_fazercards_giftcard_crypto_status()
+            : array();
+        $stored_remote_order_id = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_remote_order_id', true ),
+            191
+        );
+        $secret_wrapper = function_exists( 'wctf_fazercards_giftcard_get_secret_payload_wrapper' )
+            ? wctf_fazercards_giftcard_get_secret_payload_wrapper( $item )
+            : new WP_Error( 'wctf_giftcard_direct_settle_secret_unavailable' );
+        $secret_context_valid = ! is_wp_error( $secret_wrapper )
+            && is_array( $secret_wrapper )
+            && isset( $secret_wrapper['schema'] )
+            && 'wctf-giftcard-secret-v1' === $secret_wrapper['schema']
+            && absint( isset( $secret_wrapper['woocommerce_order_id'] ) ? $secret_wrapper['woocommerce_order_id'] : 0 ) === $order_id
+            && absint( isset( $secret_wrapper['woocommerce_order_item_id'] ) ? $secret_wrapper['woocommerce_order_item_id'] : 0 ) === $item_id
+            && ! empty( $secret_wrapper['order'] )
+            && is_array( $secret_wrapper['order'] );
+
+        unset( $secret_wrapper );
+
+        if (
+            in_array( $fulfillment_status, array( 'needs_admin_review', 'stopped' ), true )
+            || 'giftcard' !== sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) )
+            || absint( $item->get_order_id() ) !== $order_id
+            || ! hash_equals( $remote_order_id, $stored_remote_order_id )
+            || null === wctf_get_fazercards_giftcard_required_codes_count( $item )
+            || empty( $crypto_status['ready'] )
+            || ! $secret_context_valid
+            || ! function_exists( 'wctf_fazercards_giftcard_store_secret_payload' )
+            || wctf_is_fazercards_giftcard_purchase_lock_active( $order_id, $item_id )
+        ) {
+            $last_result = 'nonretryable_failure';
+            break;
+        }
+
+        $refresh_result = array();
+        add_filter( 'http_request_args', 'wctf_filter_fazercards_giftcard_direct_refresh_http_args', 999, 2 );
+
+        try {
+            $refresh_result = wctf_fazercards_giftcard_refresh_remote_order_item(
+                $order,
+                $item,
+                $item_id,
+                $remote_order_id,
+                'direct_after_purchase'
+            );
+        } catch ( Throwable $throwable ) {
+            unset( $throwable );
+            $refresh_result = array(
+                'type'      => 'error',
+                'attempted' => false,
+                'retryable' => false,
+            );
+        } finally {
+            remove_filter( 'http_request_args', 'wctf_filter_fazercards_giftcard_direct_refresh_http_args', 999 );
+        }
+
+        if ( is_array( $refresh_result ) && ! empty( $refresh_result['attempted'] ) ) {
+            $result['attempted'] = true;
+            $result['attempts']++;
+        }
+
+        $item              = new WC_Order_Item_Product( $item_id );
+        $refresh_succeeded = is_array( $refresh_result )
+            && ! empty( $refresh_result['attempted'] )
+            && isset( $refresh_result['type'] )
+            && in_array( $refresh_result['type'], array( 'success', 'warning' ), true );
+
+        if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+            if ( $refresh_succeeded ) {
+                $retrieval_item = wctf_save_fazercards_giftcard_retrieval_diagnostics(
+                    $item,
+                    'direct_after_purchase'
+                );
+
+                if ( ! is_wp_error( $retrieval_item ) ) {
+                    $item = $retrieval_item;
+                }
+
+                unset( $retrieval_item );
+            }
+
+            if ( true === wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id ) ) {
+                $last_result     = 'ready';
+                $result['ready'] = true;
+            } else {
+                $last_result = 'nonretryable_failure';
+            }
+        } elseif ( $refresh_succeeded ) {
+            $last_result = 'incomplete_fallback';
+        } elseif ( is_array( $refresh_result ) && ! empty( $refresh_result['retryable'] ) ) {
+            $last_result = 'retryable_failure_fallback';
+        } else {
+            $last_result = 'nonretryable_failure';
+        }
+
+        wctf_save_fazercards_giftcard_direct_refresh_diagnostics(
+            $item,
+            $last_result,
+            $result['attempts'],
+            1 === $result['attempts'],
+            'ready' === $last_result || 'nonretryable_failure' === $last_result
+        );
+        unset( $refresh_result );
+
+        if ( 'ready' === $last_result || 'nonretryable_failure' === $last_result ) {
+            break;
+        }
+    }
+
+    $item             = new WC_Order_Item_Product( $item_id );
+    $result['result'] = $result['ready'] ? 'ready' : $last_result;
+    wctf_save_fazercards_giftcard_direct_refresh_diagnostics(
+        $item,
+        $result['result'],
+        $result['attempts'],
+        0 < $result['attempts'],
+        true
+    );
+    return $result;
+}
+
+/**
+ * Store only safe direct-refresh timing and result diagnostics.
+ *
+ * @param WC_Order_Item_Product $item           WooCommerce order item.
+ * @param string                $result         Safe result value.
+ * @param int|null              $attempts       Actual remote GET attempts.
+ * @param bool                  $mark_attempted Whether to store the first attempt time.
+ * @param bool                  $mark_completed Whether to store the completion time.
+ * @return WC_Order_Item_Product|WP_Error
+ */
+function wctf_save_fazercards_giftcard_direct_refresh_diagnostics( $item, $result, $attempts = null, $mark_attempted = false, $mark_completed = false ) {
+    $result  = sanitize_key( $result );
+    $allowed = array( 'ready', 'incomplete_fallback', 'retryable_failure_fallback', 'nonretryable_failure' );
+
+    if (
+        ! $item instanceof WC_Order_Item_Product
+        || 1 > absint( $item->get_id() )
+        || ! in_array( $result, $allowed, true )
+    ) {
+        return new WP_Error(
+            'wctf_giftcard_direct_refresh_diagnostics_invalid',
+            __( 'Gift Card direct-refresh diagnostics could not be saved.', 'wc-topup-fields' )
+        );
+    }
+
+    try {
+        if (
+            $mark_attempted
+            && '' === (string) $item->get_meta( '_wctf_fazer_giftcard_direct_refresh_attempted_at', true )
+        ) {
+            $item->update_meta_data(
+                '_wctf_fazer_giftcard_direct_refresh_attempted_at',
+                sanitize_text_field( current_time( 'mysql', true ) )
+            );
+        }
+
+        if ( null !== $attempts ) {
+            $item->update_meta_data( '_wctf_fazer_giftcard_direct_refresh_attempts', min( 3, absint( $attempts ) ) );
+        }
+
+        if ( $mark_completed ) {
+            $item->update_meta_data(
+                '_wctf_fazer_giftcard_direct_refresh_completed_at',
+                sanitize_text_field( current_time( 'mysql', true ) )
+            );
+        }
+
+        $item->update_meta_data( '_wctf_fazer_giftcard_direct_refresh_result', $result );
+        $item->save_meta_data();
+        return new WC_Order_Item_Product( $item->get_id() );
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+        return new WP_Error(
+            'wctf_giftcard_direct_refresh_diagnostics_failed',
+            __( 'Gift Card direct-refresh diagnostics could not be persisted safely.', 'wc-topup-fields' )
+        );
+    }
 }
 
 /**
@@ -2502,17 +2936,22 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
     $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string( $remote_order_id, 191 );
     $context         = sanitize_key( $context );
     $is_auto_context       = 'auto_after_purchase' === $context;
-    $is_background_context = in_array( $context, array( 'auto_retry', 'fast_settle' ), true );
+    $is_direct_context     = 'direct_after_purchase' === $context;
+    $is_background_context = $is_direct_context
+        || in_array( $context, array( 'auto_retry', 'fast_settle', 'customer_assisted_once' ), true );
 
     $result = array(
-        'type'            => 'error',
-        'item_id'         => $item_id,
-        'status'          => '',
-        'message'         => __( 'The Gift Card remote order could not be refreshed.', 'wc-topup-fields' ),
-        'remote_order_id' => $remote_order_id,
-        'remote_status'   => '',
-        'codes_count'     => null,
-        'attempted'       => false,
+        'type'                  => 'error',
+        'item_id'               => $item_id,
+        'status'                => '',
+        'message'               => __( 'The Gift Card remote order could not be refreshed.', 'wc-topup-fields' ),
+        'remote_order_id'       => $remote_order_id,
+        'remote_status'         => '',
+        'codes_count'           => null,
+        'attempted'             => false,
+        'http_status'           => 0,
+        'retryable'             => false,
+        'fresh_order_read_used' => false,
     );
 
     if ( ! $order instanceof WC_Order || ! $item instanceof WC_Order_Item_Product ) {
@@ -2569,8 +3008,19 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
         }
 
         $provider = new WCTF_FazerCards_GiftCards_Provider();
-        $result['attempted'] = true;
-        $response = $provider->get_order( $remote_order_id );
+        $result['attempted']             = true;
+        $result['fresh_order_read_used'] = true;
+
+        try {
+            $item->update_meta_data( '_wctf_fazer_giftcard_fresh_order_read_used', 'yes' );
+            $item->save_meta_data();
+            $item = new WC_Order_Item_Product( $item_id );
+        } catch ( Throwable $diagnostic_throwable ) {
+            unset( $diagnostic_throwable );
+            $item = new WC_Order_Item_Product( $item_id );
+        }
+
+        $response = $provider->get_order( $remote_order_id, true );
 
         if ( is_array( $response ) ) {
             $response['raw']     = '';
@@ -2579,6 +3029,8 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
 
         $parsed = wctf_parse_fazercards_giftcard_refresh_response( $response, $provider );
         unset( $provider, $response );
+        $result['http_status'] = isset( $parsed['http_status'] ) ? absint( $parsed['http_status'] ) : 0;
+        $result['retryable']   = ! empty( $parsed['retryable'] );
 
         if ( empty( $parsed['success'] ) ) {
             $safe_error = wctf_sanitize_fazercards_giftcard_purchase_error(
@@ -2666,6 +3118,31 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
                     );
                 }
 
+                $retrieval_source = $is_direct_context ? '' : 'manual_refresh';
+
+                if ( 'fast_settle' === $context ) {
+                    $retrieval_source = 'fast_settle';
+                } elseif ( 'auto_retry' === $context ) {
+                    $retrieval_source = 'auto_retry';
+                } elseif ( 'customer_assisted_once' === $context ) {
+                    $retrieval_source = 'customer_assisted_once';
+                }
+
+                if ( '' !== $retrieval_source ) {
+                    $diagnostic_item = wctf_save_fazercards_giftcard_retrieval_diagnostics(
+                        new WC_Order_Item_Product( $item_id ),
+                        $retrieval_source
+                    );
+
+                    if ( ! is_wp_error( $diagnostic_item ) ) {
+                        $item = $diagnostic_item;
+                    }
+
+                    unset( $diagnostic_item );
+                }
+
+                unset( $retrieval_source );
+
                 if ( $is_auto_context ) {
                     wctf_add_fazercards_giftcard_auto_refresh_note(
                         $order,
@@ -2684,14 +3161,17 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
                 }
 
                 $result = array(
-                    'type'            => $result_type,
-                    'item_id'         => $item_id,
-                    'status'          => $final_status,
-                    'message'         => $message,
-                    'remote_order_id' => $safe_order['remote_order_id'],
-                    'remote_status'   => $safe_order['remote_status'],
-                    'codes_count'     => isset( $safe_order['codes_count'] ) ? $safe_order['codes_count'] : null,
-                    'attempted'       => true,
+                    'type'                  => $result_type,
+                    'item_id'               => $item_id,
+                    'status'                => $final_status,
+                    'message'               => $message,
+                    'remote_order_id'       => $safe_order['remote_order_id'],
+                    'remote_status'         => $safe_order['remote_status'],
+                    'codes_count'           => isset( $safe_order['codes_count'] ) ? $safe_order['codes_count'] : null,
+                    'attempted'             => true,
+                    'http_status'           => isset( $parsed['http_status'] ) ? absint( $parsed['http_status'] ) : 0,
+                    'retryable'             => false,
+                    'fresh_order_read_used' => true,
                 );
             }
 
@@ -2729,6 +3209,362 @@ function wctf_fazercards_giftcard_refresh_remote_order_item( $order, $item, $ite
 }
 
 /**
+ * Return the permanent atomic claim key for one customer-assisted refresh.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @param int $item_id  WooCommerce order item ID.
+ * @return string
+ */
+function wctf_get_fazercards_giftcard_customer_assisted_refresh_claim_key( $order_id, $item_id ) {
+    return 'wctf_fazer_giftcard_customer_refresh_once_' . absint( $order_id ) . '_' . absint( $item_id );
+}
+
+/**
+ * Determine whether the shared Gift Card refresh lock is currently active.
+ *
+ * Stale locks are removed before the one-shot attempt is claimed so the shared
+ * refresh helper can acquire its own lock in the same request.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @param int $item_id  WooCommerce order item ID.
+ * @return bool
+ */
+function wctf_is_fazercards_giftcard_refresh_lock_active( $order_id, $item_id ) {
+    $lock_key = wctf_get_fazercards_giftcard_refresh_lock_key( $order_id, $item_id );
+    $lock     = get_option( $lock_key, false );
+
+    if ( false === $lock ) {
+        return false;
+    }
+
+    $expires = is_array( $lock ) && isset( $lock['expires'] )
+        ? absint( $lock['expires'] )
+        : 0;
+
+    if ( 0 !== $expires && $expires > time() ) {
+        return true;
+    }
+
+    delete_option( $lock_key );
+
+    return false;
+}
+
+/**
+ * Atomically claim and persist one customer-assisted refresh attempt.
+ *
+ * The option is intentionally retained as a permanent, non-autoloaded
+ * idempotency marker. If metadata persistence fails, no remote request runs and
+ * later customer polling still cannot retry the claim.
+ *
+ * @param WC_Order_Item_Product $item     WooCommerce order item.
+ * @param int                   $order_id WooCommerce order ID.
+ * @param int                   $item_id  WooCommerce order item ID.
+ * @return string|WP_Error UTC attempted timestamp or safe error.
+ */
+function wctf_claim_fazercards_giftcard_customer_assisted_refresh_once( $item, $order_id, $item_id ) {
+    if ( ! $item instanceof WC_Order_Item_Product || 1 > absint( $order_id ) || 1 > absint( $item_id ) ) {
+        return new WP_Error(
+            'wctf_giftcard_customer_assisted_claim_invalid',
+            __( 'The customer-assisted Gift Card refresh could not be claimed safely.', 'wc-topup-fields' )
+        );
+    }
+
+    if ( '' !== (string) $item->get_meta( '_wctf_fazer_giftcard_customer_assisted_refresh_attempted_at', true ) ) {
+        return new WP_Error(
+            'wctf_giftcard_customer_assisted_already_claimed',
+            __( 'The customer-assisted Gift Card refresh was already attempted.', 'wc-topup-fields' )
+        );
+    }
+
+    $attempted_at = sanitize_text_field( current_time( 'mysql', true ) );
+    $claim_key    = wctf_get_fazercards_giftcard_customer_assisted_refresh_claim_key( $order_id, $item_id );
+    $claim        = array(
+        'created' => time(),
+    );
+
+    if ( ! add_option( $claim_key, $claim, '', 'no' ) ) {
+        return new WP_Error(
+            'wctf_giftcard_customer_assisted_claim_held',
+            __( 'The customer-assisted Gift Card refresh was already claimed.', 'wc-topup-fields' )
+        );
+    }
+
+    try {
+        $item->update_meta_data( '_wctf_fazer_giftcard_customer_assisted_refresh_attempted_at', $attempted_at );
+        $item->save_meta_data();
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+
+        return new WP_Error(
+            'wctf_giftcard_customer_assisted_claim_persistence_failed',
+            __( 'The customer-assisted Gift Card refresh claim could not be persisted safely.', 'wc-topup-fields' )
+        );
+    }
+
+    return $attempted_at;
+}
+
+/**
+ * Store only safe completion diagnostics for one customer-assisted refresh.
+ *
+ * @param WC_Order_Item_Product $item   WooCommerce order item.
+ * @param string                $result Safe result identifier.
+ * @return WC_Order_Item_Product|WP_Error
+ */
+function wctf_save_fazercards_giftcard_customer_assisted_refresh_result( $item, $result ) {
+    $result  = sanitize_key( $result );
+    $allowed = array( 'ready', 'incomplete', 'retryable_failure', 'nonretryable_failure' );
+
+    if (
+        ! $item instanceof WC_Order_Item_Product
+        || 1 > absint( $item->get_id() )
+        || ! in_array( $result, $allowed, true )
+    ) {
+        return new WP_Error(
+            'wctf_giftcard_customer_assisted_result_invalid',
+            __( 'The customer-assisted Gift Card refresh result was invalid.', 'wc-topup-fields' )
+        );
+    }
+
+    try {
+        $item->update_meta_data(
+            '_wctf_fazer_giftcard_customer_assisted_refresh_completed_at',
+            sanitize_text_field( current_time( 'mysql', true ) )
+        );
+        $item->update_meta_data( '_wctf_fazer_giftcard_customer_assisted_refresh_result', $result );
+        $item->save_meta_data();
+
+        return new WC_Order_Item_Product( $item->get_id() );
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+
+        return new WP_Error(
+            'wctf_giftcard_customer_assisted_result_persistence_failed',
+            __( 'The customer-assisted Gift Card refresh result could not be persisted safely.', 'wc-topup-fields' )
+        );
+    }
+}
+
+/**
+ * Run at most one authorized customer-assisted remote-order refresh per item.
+ *
+ * All request data is derived from the stored order and order item. This helper
+ * never creates a purchase and never accepts a remote identifier from a client.
+ *
+ * @param WC_Order              $order   WooCommerce order.
+ * @param WC_Order_Item_Product $item    WooCommerce order item.
+ * @param int                   $item_id WooCommerce order item ID.
+ * @return array Safe internal result.
+ */
+function wctf_maybe_run_fazercards_giftcard_customer_assisted_refresh_once( $order, $item, $item_id ) {
+    $result = array(
+        'attempted' => false,
+        'result'    => '',
+    );
+
+    if ( ! $order instanceof WC_Order || ! $item instanceof WC_Order_Item_Product ) {
+        return $result;
+    }
+
+    $order_id = absint( $order->get_id() );
+    $item_id  = absint( $item_id );
+    $owned    = $order->get_item( $item_id );
+
+    if (
+        1 > $order_id
+        || 1 > $item_id
+        || ! $order->is_paid()
+        || ! $order->get_date_paid()
+        || ! $owned instanceof WC_Order_Item_Product
+        || absint( $owned->get_id() ) !== absint( $item->get_id() )
+    ) {
+        return $result;
+    }
+
+    $item = $owned;
+
+    if (
+        'giftcard' !== sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) )
+        || 'automatic' !== sanitize_key( (string) $item->get_meta( '_wctf_fazer_giftcard_purchase_context', true ) )
+    ) {
+        return $result;
+    }
+
+    $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string(
+        $item->get_meta( '_wctf_fazer_giftcard_remote_order_id', true ),
+        191
+    );
+    $fulfillment_status = wctf_normalize_fazercards_giftcard_fulfillment_status(
+        $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
+    );
+    $attempted_at = wctf_limit_fazercards_giftcard_purchase_string(
+        $item->get_meta( '_wctf_fazer_giftcard_auto_purchase_attempted_at', true ),
+        32
+    );
+    $attempted_timestamp = '' !== $attempted_at ? strtotime( $attempted_at . ' UTC' ) : false;
+
+    if (
+        1 !== preg_match( '/\Aord-[0-9]+\z/D', $remote_order_id )
+        || in_array( $fulfillment_status, array( 'ready_to_deliver', 'stopped' ), true )
+        || false === $attempted_timestamp
+        || time() < $attempted_timestamp + 30
+        || '' !== (string) $item->get_meta( '_wctf_fazer_giftcard_customer_assisted_refresh_attempted_at', true )
+        || ! function_exists( 'wctf_fazercards_giftcard_has_secret_payload' )
+        || ! function_exists( 'wctf_fazercards_giftcard_get_secret_payload_wrapper' )
+        || ! function_exists( 'wctf_fazercards_giftcard_detect_codes_count' )
+        || ! wctf_fazercards_giftcard_has_secret_payload( $item )
+    ) {
+        return $result;
+    }
+
+    $required_count = wctf_get_fazercards_giftcard_required_codes_count( $item );
+    $crypto_status  = function_exists( 'wctf_fazercards_giftcard_crypto_status' )
+        ? wctf_fazercards_giftcard_crypto_status()
+        : array();
+
+    if ( null === $required_count || empty( $crypto_status['ready'] ) ) {
+        return $result;
+    }
+
+    $wrapper = wctf_fazercards_giftcard_get_secret_payload_wrapper( $item );
+
+    if (
+        is_wp_error( $wrapper )
+        || ! is_array( $wrapper )
+        || ! isset( $wrapper['schema'] )
+        || 'wctf-giftcard-secret-v1' !== $wrapper['schema']
+        || absint( isset( $wrapper['woocommerce_order_id'] ) ? $wrapper['woocommerce_order_id'] : 0 ) !== $order_id
+        || absint( isset( $wrapper['woocommerce_order_item_id'] ) ? $wrapper['woocommerce_order_item_id'] : 0 ) !== $item_id
+        || empty( $wrapper['order'] )
+        || ! is_array( $wrapper['order'] )
+    ) {
+        unset( $wrapper );
+        return $result;
+    }
+
+    $codes_count = wctf_fazercards_giftcard_detect_codes_count( $wrapper['order'] );
+    unset( $wrapper );
+
+    if ( wctf_fazercards_giftcard_codes_count_satisfies_quantity( $item, $codes_count ) ) {
+        return $result;
+    }
+
+    if (
+        wctf_is_fazercards_giftcard_purchase_lock_active( $order_id, $item_id )
+        || wctf_is_fazercards_giftcard_refresh_lock_active( $order_id, $item_id )
+        || (
+            function_exists( 'wctf_is_fazercards_giftcard_fast_settle_lock_active' )
+            && wctf_is_fazercards_giftcard_fast_settle_lock_active( $order_id, $item_id )
+        )
+    ) {
+        return $result;
+    }
+
+    $claim = wctf_claim_fazercards_giftcard_customer_assisted_refresh_once(
+        $item,
+        $order_id,
+        $item_id
+    );
+
+    if ( is_wp_error( $claim ) ) {
+        unset( $claim );
+        return $result;
+    }
+
+    unset( $claim );
+    $result['attempted'] = true;
+    $refresh_result      = array();
+
+    add_filter( 'http_request_args', 'wctf_filter_fazercards_giftcard_customer_assisted_http_args', 999, 2 );
+
+    try {
+        $refresh_result = wctf_fazercards_giftcard_refresh_remote_order_item(
+            $order,
+            new WC_Order_Item_Product( $item_id ),
+            $item_id,
+            $remote_order_id,
+            'customer_assisted_once'
+        );
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+        $refresh_result = array(
+            'type'      => 'error',
+            'attempted' => false,
+            'retryable' => true,
+        );
+    } finally {
+        remove_filter( 'http_request_args', 'wctf_filter_fazercards_giftcard_customer_assisted_http_args', 999 );
+    }
+
+    $item = new WC_Order_Item_Product( $item_id );
+
+    if (
+        is_array( $refresh_result )
+        && ! empty( $refresh_result['attempted'] )
+        && isset( $refresh_result['type'] )
+        && in_array( $refresh_result['type'], array( 'success', 'warning' ), true )
+    ) {
+        $diagnostic_item = wctf_save_fazercards_giftcard_retrieval_diagnostics(
+            $item,
+            'customer_assisted_once'
+        );
+
+        if ( ! is_wp_error( $diagnostic_item ) ) {
+            $item = $diagnostic_item;
+        }
+
+        unset( $diagnostic_item );
+    }
+
+    if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+        if ( true === wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id ) ) {
+            $result['result'] = 'ready';
+        } else {
+            $result['result'] = 'nonretryable_failure';
+            wctf_save_fazercards_giftcard_fulfillment_state(
+                $item,
+                'needs_admin_review',
+                __( 'The customer-assisted Gift Card refresh was complete, but readiness could not be persisted safely.', 'wc-topup-fields' )
+            );
+        }
+    } elseif (
+        is_array( $refresh_result )
+        && ! empty( $refresh_result['attempted'] )
+        && isset( $refresh_result['type'] )
+        && in_array( $refresh_result['type'], array( 'success', 'warning' ), true )
+    ) {
+        $result['result'] = 'incomplete';
+    } elseif (
+        ! is_array( $refresh_result )
+        || empty( $refresh_result['attempted'] )
+        || ! empty( $refresh_result['retryable'] )
+    ) {
+        $result['result'] = 'retryable_failure';
+    } else {
+        $result['result'] = 'nonretryable_failure';
+        $safe_error       = isset( $refresh_result['message'] )
+            ? wctf_sanitize_fazercards_giftcard_purchase_error( $refresh_result['message'], 500 )
+            : __( 'The customer-assisted Gift Card refresh requires administrator review.', 'wc-topup-fields' );
+
+        wctf_save_fazercards_giftcard_fulfillment_state(
+            $item,
+            'needs_admin_review',
+            $safe_error
+        );
+    }
+
+    wctf_save_fazercards_giftcard_customer_assisted_refresh_result(
+        new WC_Order_Item_Product( $item_id ),
+        $result['result']
+    );
+
+    unset( $refresh_result );
+
+    return $result;
+}
+
+/**
  * Strictly parse a Gift Card remote order refresh response.
  *
  * @param mixed $response Provider response.
@@ -2754,6 +3590,7 @@ function wctf_parse_fazercards_giftcard_refresh_response( $response, $provider )
             'http_status' => $http_status,
             'message'     => '',
             'order'       => $body['order'],
+            'retryable'   => false,
         );
     }
 
@@ -2774,7 +3611,23 @@ function wctf_parse_fazercards_giftcard_refresh_response( $response, $provider )
         'success'     => false,
         'http_status' => $http_status,
         'message'     => $safe_error,
+        'retryable'   => wctf_is_fazercards_giftcard_refresh_http_status_retryable( $http_status ),
     );
+}
+
+/**
+ * Determine whether a remote-order refresh failure may be retried safely.
+ *
+ * @param int $http_status Safe HTTP status; zero represents transport failure.
+ * @return bool
+ */
+function wctf_is_fazercards_giftcard_refresh_http_status_retryable( $http_status ) {
+    $http_status = absint( $http_status );
+
+    return 0 === $http_status
+        || 408 === $http_status
+        || 429 === $http_status
+        || ( 500 <= $http_status && 599 >= $http_status );
 }
 
 /**
@@ -2918,11 +3771,12 @@ function wctf_map_fazercards_giftcard_purchase_status( $safe_order ) {
 /**
  * Decide whether one successful purchase response should be refreshed once.
  *
- * @param array $safe_order Safe top-level remote order summary.
+ * @param array                 $safe_order Safe top-level remote order summary.
+ * @param WC_Order_Item_Product $item       Immutable WooCommerce order item.
  * @return bool
  */
-function wctf_should_fazercards_giftcard_auto_refresh_after_purchase( $safe_order ) {
-    if ( ! is_array( $safe_order ) ) {
+function wctf_should_fazercards_giftcard_auto_refresh_after_purchase( $safe_order, $item = null ) {
+    if ( ! is_array( $safe_order ) || ! $item instanceof WC_Order_Item_Product ) {
         return false;
     }
 
@@ -2940,12 +3794,109 @@ function wctf_should_fazercards_giftcard_auto_refresh_after_purchase( $safe_orde
     $remote_status = isset( $safe_order['remote_status'] )
         ? sanitize_key( (string) $safe_order['remote_status'] )
         : '';
+    $required_count = wctf_get_fazercards_giftcard_required_codes_count( $item );
 
-    if ( null === $codes_count || 0 === absint( $codes_count ) ) {
+    if (
+        null === $required_count
+        || null === $codes_count
+        || absint( $codes_count ) < $required_count
+    ) {
         return true;
     }
 
     return in_array( $remote_status, array( 'created', 'pending', 'processing' ), true );
+}
+
+/**
+ * Return the immutable WooCommerce order-item quantity required for delivery.
+ *
+ * Only strict integer values from 1 through 100 are accepted. Current product
+ * metadata is deliberately never consulted.
+ *
+ * @param WC_Order_Item_Product $item WooCommerce order item.
+ * @return int|null
+ */
+function wctf_get_fazercards_giftcard_required_codes_count( $item ) {
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        return null;
+    }
+
+    $quantity = $item->get_quantity();
+
+    if ( is_int( $quantity ) ) {
+        $required = $quantity;
+    } elseif ( is_string( $quantity ) && 1 === preg_match( '/\A[0-9]+\z/D', $quantity ) ) {
+        $required = (int) $quantity;
+    } else {
+        return null;
+    }
+
+    return 1 <= $required && 100 >= $required ? $required : null;
+}
+
+/**
+ * Determine whether a detected authenticated code count satisfies quantity.
+ *
+ * @param WC_Order_Item_Product $item          WooCommerce order item.
+ * @param mixed                 $detected_count Detected top-level count.
+ * @return bool
+ */
+function wctf_fazercards_giftcard_codes_count_satisfies_quantity( $item, $detected_count ) {
+    $required = wctf_get_fazercards_giftcard_required_codes_count( $item );
+
+    if (
+        null === $required
+        || ! is_int( $detected_count )
+        || 0 > $detected_count
+    ) {
+        return false;
+    }
+
+    return $detected_count >= $required;
+}
+
+/**
+ * Persist only safe quantity/retrieval diagnostics for one order item.
+ *
+ * @param WC_Order_Item_Product $item   WooCommerce order item.
+ * @param string                $source Safe retrieval source, or empty.
+ * @return WC_Order_Item_Product|WP_Error
+ */
+function wctf_save_fazercards_giftcard_retrieval_diagnostics( $item, $source = '' ) {
+    if ( ! $item instanceof WC_Order_Item_Product || 1 > absint( $item->get_id() ) ) {
+        return new WP_Error(
+            'wctf_giftcard_retrieval_diagnostics_invalid',
+            __( 'Gift Card retrieval diagnostics could not be saved.', 'wc-topup-fields' )
+        );
+    }
+
+    $required = wctf_get_fazercards_giftcard_required_codes_count( $item );
+    $source   = sanitize_key( $source );
+    $allowed  = array( 'initial_purchase', 'manual_refresh', 'direct_after_purchase', 'fast_settle', 'auto_retry', 'customer_assisted_once' );
+
+    if ( null === $required ) {
+        return new WP_Error(
+            'wctf_giftcard_required_codes_count_invalid',
+            __( 'Gift Card order-item quantity must be a strict integer from 1 through 100.', 'wc-topup-fields' )
+        );
+    }
+
+    try {
+        $item->update_meta_data( '_wctf_fazer_giftcard_required_codes_count', $required );
+
+        if ( in_array( $source, $allowed, true ) ) {
+            $item->update_meta_data( '_wctf_fazer_giftcard_retrieval_source', $source );
+        }
+
+        $item->save_meta_data();
+        return new WC_Order_Item_Product( $item->get_id() );
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+        return new WP_Error(
+            'wctf_giftcard_retrieval_diagnostics_failed',
+            __( 'Gift Card retrieval diagnostics could not be persisted safely.', 'wc-topup-fields' )
+        );
+    }
 }
 
 /**
@@ -3010,6 +3961,11 @@ function wctf_save_fazercards_giftcard_fast_settle_state( $item, $status, $attem
         }
 
         if ( 'dispatched' === $status ) {
+            $item->update_meta_data(
+                '_wctf_fazer_giftcard_fast_settle_dispatched_at',
+                sanitize_text_field( current_time( 'mysql', true ) )
+            );
+            $item->delete_meta_data( '_wctf_fazer_giftcard_fast_settle_handler_started_at' );
             $item->delete_meta_data( '_wctf_fazer_giftcard_fast_settle_started_at' );
             $item->delete_meta_data( '_wctf_fazer_giftcard_fast_settle_completed_at' );
         } elseif (
@@ -3220,7 +4176,18 @@ function wctf_maybe_dispatch_fazercards_giftcard_fast_settle( $order, $item, $it
     }
 
     if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
-        wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id );
+        $ready_effects = wctf_ensure_fazercards_giftcard_ready_delivery_effects(
+            $order,
+            $item,
+            $item_id
+        );
+
+        if ( true !== $ready_effects ) {
+            return is_wp_error( $ready_effects )
+                ? $ready_effects
+                : new WP_Error( 'wctf_giftcard_fast_settle_ready_effects_failed', __( 'Gift Card delivery readiness could not be coordinated.', 'wc-topup-fields' ) );
+        }
+
         wctf_save_fazercards_giftcard_fast_settle_state( $item, 'ready', null, '' );
         return true;
     }
@@ -3228,9 +4195,36 @@ function wctf_maybe_dispatch_fazercards_giftcard_fast_settle( $order, $item, $it
     $fast_status = wctf_normalize_fazercards_giftcard_fast_settle_status(
         $item->get_meta( '_wctf_fazer_giftcard_fast_settle_status', true )
     );
+    $redispatch_stale = false;
 
-    if ( in_array( $fast_status, array( 'dispatched', 'running', 'ready' ), true ) ) {
+    if ( in_array( $fast_status, array( 'running', 'ready' ), true ) ) {
         return true;
+    }
+
+    if ( 'dispatched' === $fast_status ) {
+        $handler_started_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_fast_settle_handler_started_at', true ),
+            32
+        );
+        $dispatched_at = wctf_limit_fazercards_giftcard_purchase_string(
+            $item->get_meta( '_wctf_fazer_giftcard_fast_settle_dispatched_at', true ),
+            32
+        );
+        $dispatched_timestamp = '' !== $dispatched_at
+            ? strtotime( $dispatched_at . ' UTC' )
+            : false;
+        $dispatch_is_fresh = false !== $dispatched_timestamp
+            && time() <= $dispatched_timestamp + 10;
+
+        if ( '' !== $handler_started_at || $dispatch_is_fresh ) {
+            return true;
+        }
+
+        if ( 1 <= absint( $item->get_meta( '_wctf_fazer_giftcard_fast_settle_redispatch_count', true ) ) ) {
+            return true;
+        }
+
+        $redispatch_stale = true;
     }
 
     $has_secret      = function_exists( 'wctf_fazercards_giftcard_has_secret_payload' )
@@ -3249,8 +4243,13 @@ function wctf_maybe_dispatch_fazercards_giftcard_fast_settle( $order, $item, $it
         && 1 === preg_match( '/\A[0-9]+\z/D', (string) $stored_codes_count )
             ? absint( $stored_codes_count )
             : null;
+    $required_count = wctf_get_fazercards_giftcard_required_codes_count( $item );
 
-    if ( null !== $codes_count && 0 < $codes_count ) {
+    if ( null === $required_count ) {
+        return new WP_Error( 'wctf_giftcard_fast_settle_quantity_invalid', __( 'Gift Card order-item quantity must be a strict integer from 1 through 100.', 'wc-topup-fields' ) );
+    }
+
+    if ( null !== $codes_count && $codes_count >= $required_count ) {
         return new WP_Error( 'wctf_giftcard_fast_settle_codes_unverified', __( 'Gift Card codes appear to exist, but the encrypted payload is not ready for delivery.', 'wc-topup-fields' ) );
     }
 
@@ -3275,6 +4274,24 @@ function wctf_maybe_dispatch_fazercards_giftcard_fast_settle( $order, $item, $it
     if ( is_wp_error( $fallback ) ) {
         wctf_save_fazercards_giftcard_fast_settle_state( $item, 'failed', 0, $fallback->get_error_message() );
         return $fallback;
+    }
+
+    if ( $redispatch_stale ) {
+        try {
+            $item->update_meta_data( '_wctf_fazer_giftcard_fast_settle_redispatch_count', 1 );
+            $item->update_meta_data(
+                '_wctf_fazer_giftcard_fast_settle_redispatched_at',
+                sanitize_text_field( current_time( 'mysql', true ) )
+            );
+            $item->save_meta_data();
+            $item = new WC_Order_Item_Product( $item_id );
+        } catch ( Throwable $throwable ) {
+            unset( $throwable );
+            return new WP_Error(
+                'wctf_giftcard_fast_settle_redispatch_state_failed',
+                __( 'The stale Gift Card fast-settle request could not be redispatched safely. The scheduled fallback remains active.', 'wc-topup-fields' )
+            );
+        }
     }
 
     $dispatched = wctf_dispatch_fazercards_giftcard_fast_settle( $order_id, $item_id, $remote_order_id );
@@ -3477,9 +4494,24 @@ function wctf_handle_fazercards_giftcard_fast_settle() {
 
     if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
         delete_transient( $token_key );
-        wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id );
-        wctf_save_fazercards_giftcard_fast_settle_state( $item, 'ready', null, '' );
-        wctf_finish_fazercards_giftcard_fast_settle_request( 204 );
+        $ready_effects = wctf_ensure_fazercards_giftcard_ready_delivery_effects(
+            $order,
+            $item,
+            $item_id
+        );
+
+        if ( true === $ready_effects ) {
+            wctf_save_fazercards_giftcard_fast_settle_state( $item, 'ready', null, '' );
+            wctf_finish_fazercards_giftcard_fast_settle_request( 204 );
+        }
+
+        wctf_save_fazercards_giftcard_fast_settle_state(
+            $item,
+            'fallback_queued',
+            null,
+            __( 'Gift Card delivery readiness could not be coordinated. The scheduled fallback remains active.', 'wc-topup-fields' )
+        );
+        wctf_finish_fazercards_giftcard_fast_settle_request( 500 );
     }
 
     $lock_token = wctf_acquire_fazercards_giftcard_fast_settle_lock( $order_id, $item_id );
@@ -3490,6 +4522,12 @@ function wctf_handle_fazercards_giftcard_fast_settle() {
 
     delete_transient( $token_key );
     ignore_user_abort( true );
+    $item->update_meta_data(
+        '_wctf_fazer_giftcard_fast_settle_handler_started_at',
+        sanitize_text_field( current_time( 'mysql', true ) )
+    );
+    $item->save_meta_data();
+    $item = new WC_Order_Item_Product( $item_id );
 
     try {
         wctf_run_fazercards_giftcard_fast_settle( $order, $item, $item_id, $remote_order_id );
@@ -3526,8 +4564,9 @@ function wctf_run_fazercards_giftcard_fast_settle( $order, $item, $item_id, $rem
     $remote_order_id = wctf_limit_fazercards_giftcard_purchase_string( $remote_order_id, 191 );
     $targets         = array( 0, 3, 7, 12, 18 );
     $started         = microtime( true );
-    $deadline        = $started + 21;
+    $deadline        = $started + 25;
     $attempts        = 0;
+    $last_retryable_error = '';
     $state           = wctf_save_fazercards_giftcard_fast_settle_state( $item, 'running', 0, '' );
 
     if ( is_wp_error( $state ) ) {
@@ -3549,8 +4588,23 @@ function wctf_run_fazercards_giftcard_fast_settle( $order, $item, $item_id, $rem
         $item = new WC_Order_Item_Product( $item_id );
 
         if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
-            wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id );
-            wctf_save_fazercards_giftcard_fast_settle_state( $item, 'ready', $attempts, '' );
+            $ready_effects = wctf_ensure_fazercards_giftcard_ready_delivery_effects(
+                $order,
+                $item,
+                $item_id
+            );
+
+            if ( true === $ready_effects ) {
+                wctf_save_fazercards_giftcard_fast_settle_state( $item, 'ready', $attempts, '' );
+            } else {
+                wctf_save_fazercards_giftcard_fast_settle_state(
+                    $item,
+                    'fallback_queued',
+                    $attempts,
+                    __( 'Gift Card delivery readiness could not be coordinated. The scheduled fallback remains active.', 'wc-topup-fields' )
+                );
+            }
+
             return;
         }
 
@@ -3581,25 +4635,77 @@ function wctf_run_fazercards_giftcard_fast_settle( $order, $item, $item_id, $rem
         $item = new WC_Order_Item_Product( $item_id );
 
         if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
-            wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id );
-            wctf_save_fazercards_giftcard_fast_settle_state( $item, 'ready', $attempts, '' );
+            $ready_effects = wctf_ensure_fazercards_giftcard_ready_delivery_effects(
+                $order,
+                $item,
+                $item_id
+            );
+
+            if ( true === $ready_effects ) {
+                wctf_save_fazercards_giftcard_fast_settle_state( $item, 'ready', $attempts, '' );
+            } else {
+                wctf_save_fazercards_giftcard_fast_settle_state(
+                    $item,
+                    'fallback_queued',
+                    $attempts,
+                    __( 'Gift Card delivery readiness could not be coordinated. The scheduled fallback remains active.', 'wc-topup-fields' )
+                );
+            }
+
             return;
         }
 
-        if (
-            ! is_array( $result )
-            || empty( $result['attempted'] )
-            || ( isset( $result['type'] ) && 'error' === $result['type'] )
-        ) {
-            $safe_error = is_array( $result ) && ! empty( $result['message'] )
-                ? wctf_sanitize_fazercards_giftcard_purchase_error( $result['message'], 500 )
-                : __( 'Gift Card fast settle could not complete a safe refresh attempt.', 'wc-topup-fields' );
+        if ( ! is_array( $result ) ) {
+            $safe_error = __( 'Gift Card fast settle could not complete a safe refresh attempt.', 'wc-topup-fields' );
             wctf_save_fazercards_giftcard_fast_settle_state( $item, 'fallback_queued', $attempts, $safe_error );
             return;
         }
+
+        if ( empty( $result['attempted'] ) ) {
+            $safe_error = is_array( $result ) && ! empty( $result['message'] )
+                ? wctf_sanitize_fazercards_giftcard_purchase_error( $result['message'], 500 )
+                : __( 'Gift Card fast settle could not complete a safe refresh attempt.', 'wc-topup-fields' );
+
+            if ( isset( $result['type'] ) && 'error' === $result['type'] ) {
+                wctf_save_fazercards_giftcard_fulfillment_state(
+                    $item,
+                    'needs_admin_review',
+                    $safe_error
+                );
+                wctf_save_fazercards_giftcard_fast_settle_state( $item, 'failed', $attempts, $safe_error );
+                return;
+            }
+
+            wctf_save_fazercards_giftcard_fast_settle_state( $item, 'fallback_queued', $attempts, $safe_error );
+            return;
+        }
+
+        if ( isset( $result['type'] ) && 'error' === $result['type'] ) {
+            $safe_error = ! empty( $result['message'] )
+                ? wctf_sanitize_fazercards_giftcard_purchase_error( $result['message'], 500 )
+                : __( 'Gift Card fast settle could not complete a safe refresh attempt.', 'wc-topup-fields' );
+
+            if ( empty( $result['retryable'] ) ) {
+                wctf_save_fazercards_giftcard_fulfillment_state(
+                    $item,
+                    'needs_admin_review',
+                    $safe_error
+                );
+                wctf_save_fazercards_giftcard_fast_settle_state( $item, 'failed', $attempts, $safe_error );
+                return;
+            }
+
+            $last_retryable_error = $safe_error;
+            wctf_save_fazercards_giftcard_fast_settle_state( $item, 'running', $attempts, $safe_error );
+        }
     }
 
-    wctf_save_fazercards_giftcard_fast_settle_state( new WC_Order_Item_Product( $item_id ), 'fallback_queued', $attempts, '' );
+    wctf_save_fazercards_giftcard_fast_settle_state(
+        new WC_Order_Item_Product( $item_id ),
+        'fallback_queued',
+        $attempts,
+        $last_retryable_error
+    );
 }
 
 /**
@@ -3632,7 +4738,79 @@ function wctf_filter_fazercards_giftcard_fast_settle_http_args( $args, $url ) {
         && ! empty( $url_parts['path'] )
         && 1 === preg_match( '#/api/v2/orders/ord-[0-9]+/?\z#D', (string) $url_parts['path'] )
     ) {
-        $args['timeout'] = 2;
+        $args['timeout'] = 5;
+    }
+
+    return $args;
+}
+
+/**
+ * Limit the HTTP timeout only for the direct post-purchase order GET.
+ *
+ * @param array  $args HTTP request arguments.
+ * @param string $url  Request URL.
+ * @return array
+ */
+function wctf_filter_fazercards_giftcard_direct_refresh_http_args( $args, $url ) {
+    if ( ! is_array( $args ) || ! is_string( $url ) || ! function_exists( 'wctf_config' ) ) {
+        return $args;
+    }
+
+    $config    = wctf_config();
+    $api_url   = is_array( $config ) && ! empty( $config['api_url'] ) ? (string) $config['api_url'] : '';
+    $api_parts = wp_parse_url( $api_url );
+    $url_parts = wp_parse_url( $url );
+    $method    = isset( $args['method'] ) && is_scalar( $args['method'] )
+        ? strtoupper( (string) $args['method'] )
+        : 'GET';
+
+    if (
+        'GET' === $method
+        && is_array( $api_parts )
+        && is_array( $url_parts )
+        && ! empty( $api_parts['host'] )
+        && ! empty( $url_parts['host'] )
+        && strtolower( (string) $api_parts['host'] ) === strtolower( (string) $url_parts['host'] )
+        && ! empty( $url_parts['path'] )
+        && 1 === preg_match( '#/api/v2/orders/ord-[0-9]+/?\z#D', (string) $url_parts['path'] )
+    ) {
+        $args['timeout'] = 3;
+    }
+
+    return $args;
+}
+
+/**
+ * Limit the HTTP timeout only for the authorized customer-assisted order GET.
+ *
+ * @param array  $args HTTP request arguments.
+ * @param string $url  Request URL.
+ * @return array
+ */
+function wctf_filter_fazercards_giftcard_customer_assisted_http_args( $args, $url ) {
+    if ( ! is_array( $args ) || ! is_string( $url ) || ! function_exists( 'wctf_config' ) ) {
+        return $args;
+    }
+
+    $config    = wctf_config();
+    $api_url   = is_array( $config ) && ! empty( $config['api_url'] ) ? (string) $config['api_url'] : '';
+    $api_parts = wp_parse_url( $api_url );
+    $url_parts = wp_parse_url( $url );
+    $method    = isset( $args['method'] ) && is_scalar( $args['method'] )
+        ? strtoupper( (string) $args['method'] )
+        : 'GET';
+
+    if (
+        'GET' === $method
+        && is_array( $api_parts )
+        && is_array( $url_parts )
+        && ! empty( $api_parts['host'] )
+        && ! empty( $url_parts['host'] )
+        && strtolower( (string) $api_parts['host'] ) === strtolower( (string) $url_parts['host'] )
+        && ! empty( $url_parts['path'] )
+        && 1 === preg_match( '#/api/v2/orders/ord-[0-9]+/?\z#D', (string) $url_parts['path'] )
+    ) {
+        $args['timeout'] = 5;
     }
 
     return $args;
@@ -3792,6 +4970,8 @@ function wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id )
     if (
         is_wp_error( $wrapper )
         || ! is_array( $wrapper )
+        || ! isset( $wrapper['schema'] )
+        || 'wctf-giftcard-secret-v1' !== $wrapper['schema']
         || absint( isset( $wrapper['woocommerce_order_id'] ) ? $wrapper['woocommerce_order_id'] : 0 ) !== absint( $order->get_id() )
         || absint( isset( $wrapper['woocommerce_order_item_id'] ) ? $wrapper['woocommerce_order_item_id'] : 0 ) !== absint( $item_id )
         || empty( $wrapper['order'] )
@@ -3802,7 +4982,7 @@ function wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id )
 
     $codes_count = wctf_fazercards_giftcard_detect_codes_count( $wrapper['order'] );
 
-    return null !== $codes_count && 0 < absint( $codes_count );
+    return wctf_fazercards_giftcard_codes_count_satisfies_quantity( $item, $codes_count );
 }
 
 /**
@@ -3836,7 +5016,11 @@ function wctf_save_fazercards_giftcard_fulfillment_state( $item, $status, $error
 
         if ( 'ready_to_deliver' === $status ) {
             $now = sanitize_text_field( current_time( 'mysql', true ) );
-            $item->update_meta_data( '_wctf_fazer_giftcard_ready_to_deliver_at', $now );
+
+            if ( '' === (string) $item->get_meta( '_wctf_fazer_giftcard_ready_to_deliver_at', true ) ) {
+                $item->update_meta_data( '_wctf_fazer_giftcard_ready_to_deliver_at', $now );
+            }
+
             $item->update_meta_data( '_wctf_fazer_giftcard_queue_completed_at', $now );
             $item->delete_meta_data( '_wctf_fazer_giftcard_next_refresh_at' );
         } elseif ( 'needs_admin_review' === $status || 'stopped' === $status ) {
@@ -3888,21 +5072,50 @@ function wctf_save_fazercards_giftcard_auto_refresh_error( $item, $error ) {
 }
 
 /**
- * Mark an item ready for future delivery if the encrypted payload qualifies.
+ * Ensure quantity-complete Gift Card readiness and all idempotent side effects.
+ *
+ * The ready action is deliberately emitted even when the stored fulfillment
+ * status was already ready. Order-level email coordination owns duplicate-send
+ * prevention and must always receive an opportunity to recheck the whole order.
  *
  * @param WC_Order              $order   WooCommerce order.
  * @param WC_Order_Item_Product $item    WooCommerce order item.
  * @param int                   $item_id WooCommerce order item ID.
- * @return bool
+ * @return true|WP_Error
  */
-function wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) {
-    if ( ! wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
-        return false;
+function wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id ) {
+    if ( ! $order instanceof WC_Order || ! $item instanceof WC_Order_Item_Product ) {
+        return new WP_Error(
+            'wctf_giftcard_ready_effects_context_invalid',
+            __( 'A valid Gift Card order item is required before readiness can be ensured.', 'wc-topup-fields' )
+        );
     }
 
-    $was_ready = 'ready_to_deliver' === wctf_normalize_fazercards_giftcard_fulfillment_status(
-        $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
-    );
+    $order_id = absint( $order->get_id() );
+    $item_id  = absint( $item_id );
+    $owned    = $order->get_item( $item_id );
+
+    if (
+        1 > $order_id
+        || 1 > $item_id
+        || ! $owned instanceof WC_Order_Item_Product
+        || absint( $owned->get_id() ) !== absint( $item->get_id() )
+        || absint( $owned->get_order_id() ) !== $order_id
+    ) {
+        return new WP_Error(
+            'wctf_giftcard_ready_effects_ownership_invalid',
+            __( 'The Gift Card order item does not belong to this order.', 'wc-topup-fields' )
+        );
+    }
+
+    $item = $owned;
+
+    if ( ! wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+        return new WP_Error(
+            'wctf_giftcard_ready_effects_not_ready',
+            __( 'The encrypted Gift Card payload is not quantity-complete.', 'wc-topup-fields' )
+        );
+    }
 
     $saved_item = wctf_save_fazercards_giftcard_fulfillment_state(
         $item,
@@ -3911,18 +5124,57 @@ function wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $i
     );
 
     if ( is_wp_error( $saved_item ) ) {
-        return false;
+        return $saved_item;
     }
 
-    if ( ! $was_ready && $order instanceof WC_Order ) {
-        do_action(
-            'wctf_fazercards_giftcard_ready_to_deliver',
-            absint( $order->get_id() ),
-            absint( $item_id )
-        );
+    $diagnostic_item = wctf_save_fazercards_giftcard_retrieval_diagnostics( $saved_item, '' );
+
+    if ( ! is_wp_error( $diagnostic_item ) ) {
+        $saved_item = $diagnostic_item;
     }
+
+    unset( $diagnostic_item );
+
+    try {
+        $ready_action_count = absint(
+            $saved_item->get_meta( '_wctf_fazer_giftcard_ready_action_count', true )
+        );
+        $saved_item->update_meta_data(
+            '_wctf_fazer_giftcard_ready_action_last_at',
+            sanitize_text_field( current_time( 'mysql', true ) )
+        );
+        $saved_item->update_meta_data(
+            '_wctf_fazer_giftcard_ready_action_count',
+            $ready_action_count + 1
+        );
+        $saved_item->save_meta_data();
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+    }
+
+    do_action(
+        'wctf_fazercards_giftcard_ready_to_deliver',
+        $order_id,
+        $item_id
+    );
 
     return true;
+}
+
+/**
+ * Backward-compatible boolean wrapper for existing readiness call sites.
+ *
+ * @param WC_Order              $order   WooCommerce order.
+ * @param WC_Order_Item_Product $item    WooCommerce order item.
+ * @param int                   $item_id WooCommerce order item ID.
+ * @return bool
+ */
+function wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) {
+    return true === wctf_ensure_fazercards_giftcard_ready_delivery_effects(
+        $order,
+        $item,
+        $item_id
+    );
 }
 
 /**
@@ -4082,8 +5334,17 @@ function wctf_schedule_fazercards_giftcard_auto_refresh_retry(
     }
 
     if ( wctf_is_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
-        wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id );
-        return true;
+        $ready_effects = wctf_ensure_fazercards_giftcard_ready_delivery_effects(
+            $order,
+            $item,
+            $item_id
+        );
+
+        return true === $ready_effects
+            ? true
+            : ( is_wp_error( $ready_effects )
+                ? $ready_effects
+                : new WP_Error( 'wctf_giftcard_auto_refresh_ready_effects_failed', __( 'Gift Card delivery readiness could not be coordinated.', 'wc-topup-fields' ) ) );
     }
 
     $stored_codes_count = $item->get_meta( '_wctf_fazer_giftcard_codes_count', true );
@@ -4092,8 +5353,16 @@ function wctf_schedule_fazercards_giftcard_auto_refresh_retry(
         && 1 === preg_match( '/\A[0-9]+\z/D', (string) $stored_codes_count )
             ? absint( $stored_codes_count )
             : null;
+    $required_count = wctf_get_fazercards_giftcard_required_codes_count( $item );
 
-    if ( null !== $codes_count_value && 0 < $codes_count_value ) {
+    if ( null === $required_count ) {
+        return new WP_Error(
+            'wctf_giftcard_auto_refresh_quantity_invalid',
+            __( 'Gift Card order-item quantity must be a strict integer from 1 through 100.', 'wc-topup-fields' )
+        );
+    }
+
+    if ( null !== $codes_count_value && $codes_count_value >= $required_count ) {
         return new WP_Error(
             'wctf_giftcard_auto_refresh_codes_present_but_unverified',
             __( 'Gift Card codes appear to exist, but encrypted payload verification did not pass. Admin review is required.', 'wc-topup-fields' )
@@ -4195,7 +5464,7 @@ function wctf_maybe_update_fazercards_giftcard_fulfillment_after_refresh( $order
         return;
     }
 
-    if ( wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+    if ( true === wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id ) ) {
         wctf_add_fazercards_giftcard_auto_refresh_queue_note(
             $order,
             'completed',
@@ -4286,7 +5555,12 @@ function wctf_run_fazercards_giftcard_auto_refresh_retry( $order_id, $item_id ) 
         $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
     );
 
-    if ( in_array( $fulfillment_status, array( 'ready_to_deliver', 'stopped' ), true ) ) {
+    if ( 'ready_to_deliver' === $fulfillment_status ) {
+        wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id );
+        return;
+    }
+
+    if ( in_array( $fulfillment_status, array( 'needs_admin_review', 'stopped' ), true ) ) {
         return;
     }
 
@@ -4338,7 +5612,7 @@ function wctf_run_fazercards_giftcard_auto_refresh_retry( $order_id, $item_id ) 
         return;
     }
 
-    if ( wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+    if ( true === wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id ) ) {
         wctf_add_fazercards_giftcard_auto_refresh_queue_note(
             $order,
             'completed',
@@ -4406,7 +5680,7 @@ function wctf_run_fazercards_giftcard_auto_refresh_retry( $order_id, $item_id ) 
         }
     }
 
-    if ( wctf_maybe_mark_fazercards_giftcard_ready_to_deliver( $order, $item, $item_id ) ) {
+    if ( true === wctf_ensure_fazercards_giftcard_ready_delivery_effects( $order, $item, $item_id ) ) {
         wctf_add_fazercards_giftcard_auto_refresh_queue_note(
             $order,
             'completed',
@@ -4423,6 +5697,21 @@ function wctf_run_fazercards_giftcard_auto_refresh_retry( $order_id, $item_id ) 
         && 'error' === $result['type']
     ) {
         wctf_save_fazercards_giftcard_auto_refresh_error( $item, $result['message'] );
+
+        if ( empty( $result['retryable'] ) ) {
+            wctf_save_fazercards_giftcard_fulfillment_state(
+                $item,
+                'needs_admin_review',
+                $result['message']
+            );
+            wctf_add_fazercards_giftcard_auto_refresh_queue_note(
+                $order,
+                'review',
+                $item_id,
+                __( 'A non-retryable remote refresh error requires administrator review.', 'wc-topup-fields' )
+            );
+            return;
+        }
     } elseif ( is_array( $result ) && ! empty( $result['attempted'] ) ) {
         wctf_save_fazercards_giftcard_auto_refresh_error( $item, '' );
     }

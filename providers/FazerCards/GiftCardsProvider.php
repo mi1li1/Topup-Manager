@@ -155,9 +155,10 @@ if ( ! class_exists( 'WCTF_FazerCards_GiftCards_Provider' ) ) {
          * Retrieve one existing FazerCards order by public remote order ID.
          *
          * @param string $remote_order_id FazerCards public order ID.
+         * @param bool   $fresh           Whether to bypass intermediary caches.
          * @return array
          */
-        public function get_order( $remote_order_id ) {
+        public function get_order( $remote_order_id, $fresh = false ) {
             $remote_order_id = is_scalar( $remote_order_id )
                 ? sanitize_text_field( (string) $remote_order_id )
                 : '';
@@ -166,7 +167,38 @@ if ( ! class_exists( 'WCTF_FazerCards_GiftCards_Provider' ) ) {
                 return $this->error_response( 'A valid FazerCards remote order ID is required.' );
             }
 
-            $response = $this->get( '/orders/' . rawurlencode( $remote_order_id ) );
+            $query   = array();
+            $headers = array();
+
+            if ( $fresh ) {
+                $milliseconds = (string) floor( microtime( true ) * 1000 );
+
+                try {
+                    $random_nonce = bin2hex( random_bytes( 4 ) );
+                } catch ( Throwable $throwable ) {
+                    unset( $throwable );
+                    $random_nonce = substr(
+                        hash( 'sha256', $milliseconds . '|' . wp_rand() . '|' . microtime( true ) ),
+                        0,
+                        8
+                    );
+                }
+
+                $query['_wctf_fresh'] = $milliseconds . '-' . $random_nonce;
+                $headers              = array(
+                    'Cache-Control' => 'no-cache, no-store, max-age=0',
+                    'Pragma'        => 'no-cache',
+                    'Expires'       => '0',
+                );
+            }
+
+            $response = $this->get(
+                '/orders/' . rawurlencode( $remote_order_id ),
+                $query,
+                $headers
+            );
+
+            unset( $query, $headers, $milliseconds, $random_nonce );
 
             if ( ! is_array( $response ) ) {
                 return $this->error_response( 'The Gift Card remote order response was invalid.' );

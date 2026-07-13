@@ -321,8 +321,15 @@ function wctf_get_fazercards_giftcard_customer_delivery_data( $order, $item, $it
         || ! function_exists( 'wctf_fazercards_giftcard_crypto_status' )
         || ! function_exists( 'wctf_fazercards_giftcard_get_secret_payload_wrapper' )
         || ! function_exists( 'wctf_fazercards_giftcard_detect_codes_count' )
+        || ! function_exists( 'wctf_get_fazercards_giftcard_required_codes_count' )
     ) {
         return new WP_Error( 'wctf_giftcard_customer_not_ready' );
+    }
+
+    $required_count = wctf_get_fazercards_giftcard_required_codes_count( $item );
+
+    if ( null === $required_count ) {
+        return new WP_Error( 'wctf_giftcard_customer_quantity_invalid' );
     }
 
     $crypto_status = wctf_fazercards_giftcard_crypto_status();
@@ -366,9 +373,21 @@ function wctf_get_fazercards_giftcard_customer_delivery_data( $order, $item, $it
         return new WP_Error( 'wctf_giftcard_customer_sections_missing' );
     }
 
-    if ( null === $detected || 1 > absint( $detected ) || 100 < count( $entries ) ) {
+    if (
+        null === $detected
+        || 100 < absint( $detected )
+        || 100 < count( $entries )
+    ) {
         unset( $wrapper, $order_payload, $entries );
         return new WP_Error( 'wctf_giftcard_customer_count_invalid' );
+    }
+
+    if (
+        absint( $detected ) < $required_count
+        || count( $entries ) < $required_count
+    ) {
+        unset( $wrapper, $order_payload, $entries );
+        return new WP_Error( 'wctf_giftcard_customer_count_incomplete' );
     }
 
     $normalized = array();
@@ -390,6 +409,11 @@ function wctf_get_fazercards_giftcard_customer_delivery_data( $order, $item, $it
         }
 
         $normalized[] = $value;
+    }
+
+    if ( count( $normalized ) < $required_count ) {
+        unset( $wrapper, $order_payload, $entries, $normalized );
+        return new WP_Error( 'wctf_giftcard_customer_count_incomplete' );
     }
 
     $result = array(
@@ -454,8 +478,13 @@ function wctf_get_fazercards_giftcard_customer_order_state( $order ) {
         $delivery_data = wctf_get_fazercards_giftcard_customer_delivery_data( $order, $item, $item_id );
 
         if ( is_wp_error( $delivery_data ) ) {
-            $item_state['status'] = 'blocked';
-            $has_blocked          = true;
+            if ( 'wctf_giftcard_customer_count_incomplete' === $delivery_data->get_error_code() ) {
+                $item_state['status'] = 'preparing';
+                $has_preparing        = true;
+            } else {
+                $item_state['status'] = 'blocked';
+                $has_blocked          = true;
+            }
         } else {
             $item_state['status']  = 'ready';
             $item_state['mode']    = $delivery_data['mode'];
@@ -640,6 +669,9 @@ function wctf_get_fazercards_giftcard_customer_delivery_diagnostics( $order, $it
     $crypto_ready = false;
     $context_valid = false;
     $codes_count = null;
+    $required_codes_count = function_exists( 'wctf_get_fazercards_giftcard_required_codes_count' )
+        ? wctf_get_fazercards_giftcard_required_codes_count( $item )
+        : null;
 
     if ( function_exists( 'wctf_fazercards_giftcard_crypto_status' ) ) {
         $crypto_status = wctf_fazercards_giftcard_crypto_status();
@@ -698,8 +730,10 @@ function wctf_get_fazercards_giftcard_customer_delivery_diagnostics( $order, $it
         $reason = __( 'Gift Card encryption is not ready.', 'wc-topup-fields' );
     } elseif ( ! $context_valid ) {
         $reason = __( 'Encrypted payload authentication or order-item context validation failed.', 'wc-topup-fields' );
-    } elseif ( null === $codes_count || 1 > absint( $codes_count ) ) {
-        $reason = __( 'No customer delivery cards or codes were detected.', 'wc-topup-fields' );
+    } elseif ( null === $required_codes_count ) {
+        $reason = __( 'Gift Card order-item quantity is invalid.', 'wc-topup-fields' );
+    } elseif ( null === $codes_count || absint( $codes_count ) < $required_codes_count ) {
+        $reason = __( 'The complete customer delivery card/code quantity is still preparing.', 'wc-topup-fields' );
     } elseif ( ! $display_ready ) {
         $reason = __( 'Customer delivery payload validation failed.', 'wc-topup-fields' );
     } else {
@@ -719,6 +753,7 @@ function wctf_get_fazercards_giftcard_customer_delivery_diagnostics( $order, $it
         'crypto_ready'      => $crypto_ready,
         'context_valid'     => $context_valid,
         'codes_count'       => $codes_count,
+        'required_codes_count' => $required_codes_count,
         'reason'            => sanitize_text_field( $reason ),
     );
 }
@@ -779,6 +814,7 @@ function wctf_render_fazercards_giftcard_customer_delivery_diagnostics( $post_or
             __( 'Crypto ready', 'wc-topup-fields' )                    => $yes_no( $diagnostics['crypto_ready'] ),
             __( 'Decrypt/context validation', 'wc-topup-fields' )      => $diagnostics['context_valid'] ? __( 'Passed', 'wc-topup-fields' ) : __( 'Failed', 'wc-topup-fields' ),
             __( 'Detected customer delivery cards/codes count', 'wc-topup-fields' ) => null === $diagnostics['codes_count'] ? __( 'Unknown', 'wc-topup-fields' ) : (string) absint( $diagnostics['codes_count'] ),
+            __( 'Required customer delivery cards/codes count', 'wc-topup-fields' ) => null === $diagnostics['required_codes_count'] ? __( 'Invalid quantity', 'wc-topup-fields' ) : (string) absint( $diagnostics['required_codes_count'] ),
             __( 'Last customer display safe reason', 'wc-topup-fields' ) => $diagnostics['reason'],
         );
 
@@ -1002,6 +1038,15 @@ function wctf_get_fazercards_giftcard_completed_email_readiness( $order ) {
             $item,
             $item_id
         );
+
+        if (
+            is_wp_error( $delivery_data )
+            && 'wctf_giftcard_customer_count_incomplete' === $delivery_data->get_error_code()
+        ) {
+            unset( $delivery_data );
+            $has_held = true;
+            continue;
+        }
 
         if ( is_wp_error( $delivery_data ) || empty( $delivery_data['entries'] ) ) {
             unset( $delivery_data );
@@ -1586,7 +1631,17 @@ function wctf_maybe_coordinate_fazercards_giftcard_completed_email( $order, $rea
         $schedule_result = wctf_schedule_fazercards_giftcard_completed_order_email( $order, $reason );
 
         if ( in_array( $schedule_result['result'], array( 'scheduled', 'already_scheduled' ), true ) ) {
-            wctf_maybe_dispatch_fazercards_giftcard_completed_email_fast_send( $order, $reason );
+            try {
+                $worker_result = wctf_process_fazercards_giftcard_completed_order_email(
+                    absint( $order->get_id() ),
+                    'automatic'
+                );
+            } catch ( Throwable $throwable ) {
+                unset( $throwable );
+                $worker_result = array();
+            }
+
+            unset( $worker_result );
         }
 
         unset( $schedule_result );
@@ -1601,6 +1656,128 @@ function wctf_maybe_coordinate_fazercards_giftcard_completed_email( $order, $rea
     }
 
     unset( $readiness );
+}
+
+/**
+ * Persist only safe order-level Completed email repair diagnostics.
+ *
+ * @param WC_Order $order  WooCommerce order.
+ * @param string   $result Safe repair result.
+ * @return void
+ */
+function wctf_save_fazercards_giftcard_completed_email_repair_diagnostics( $order, $result ) {
+    $result  = sanitize_key( $result );
+    $allowed = array( 'coordinated', 'already_sending', 'already_sent', 'not_ready', 'locked', 'skipped' );
+
+    if ( ! $order instanceof WC_Order || ! in_array( $result, $allowed, true ) ) {
+        return;
+    }
+
+    $previous = sanitize_key(
+        (string) $order->get_meta( '_wctf_fazer_giftcard_email_repair_result', true )
+    );
+    $last_at  = sanitize_text_field(
+        (string) $order->get_meta( '_wctf_fazer_giftcard_email_repair_last_at', true )
+    );
+
+    if ( 'coordinated' === $previous && in_array( $result, array( 'already_sending', 'already_sent' ), true ) ) {
+        return;
+    }
+
+    if ( $previous === $result && '' !== $last_at ) {
+        return;
+    }
+
+    try {
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_email_repair_last_at',
+            gmdate( 'Y-m-d H:i:s' )
+        );
+        $order->update_meta_data( '_wctf_fazer_giftcard_email_repair_result', $result );
+        $order->save();
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+    }
+}
+
+/**
+ * Idempotently repair missed Completed Order email coordination.
+ *
+ * This helper never applies legacy delivery state and never creates a separate
+ * email path. It invokes the existing authoritative coordinator only for a
+ * completed, wholly ready order that has never attempted delivery.
+ *
+ * @param WC_Order $order          WooCommerce order.
+ * @param array    $customer_state Authorized aggregate customer delivery state.
+ * @return string Safe repair result.
+ */
+function wctf_maybe_repair_fazercards_giftcard_completed_email_coordination( $order, $customer_state ) {
+    if ( ! $order instanceof WC_Order || ! wctf_fazercards_giftcard_order_has_delivery_items( $order ) ) {
+        return 'skipped';
+    }
+
+    $result = 'skipped';
+    $status = wctf_normalize_fazercards_giftcard_completed_email_status(
+        $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+
+    if ( in_array( $status, array( 'sent', 'legacy_delivered' ), true ) ) {
+        $result = 'already_sent';
+    } elseif ( in_array( $status, array( 'scheduled', 'sending' ), true ) ) {
+        $result = 'already_sending';
+    } elseif (
+        ! is_array( $customer_state )
+        || ! isset( $customer_state['status'] )
+        || 'ready' !== sanitize_key( (string) $customer_state['status'] )
+        || 'completed' !== sanitize_key( (string) $order->get_status() )
+    ) {
+        $result = 'not_ready';
+    } else {
+        $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+
+        if ( 'ready' !== $readiness['status'] ) {
+            $result = 'not_ready';
+        } else {
+            $attempts = absint(
+                $order->get_meta( '_wctf_fazer_giftcard_completed_email_attempts', true )
+            );
+            $sent_at  = sanitize_text_field(
+                (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_sent_at', true )
+            );
+
+            if ( '' !== $sent_at ) {
+                $result = 'already_sent';
+            } elseif (
+                ! in_array( $status, array( 'not_started', 'held' ), true )
+                || 0 !== $attempts
+            ) {
+                $result = 'skipped';
+            } elseif ( wctf_is_fazercards_giftcard_completed_email_lock_active( $order->get_id() ) ) {
+                $result = 'locked';
+            } else {
+                wctf_maybe_coordinate_fazercards_giftcard_completed_email(
+                    $order,
+                    'authorized_customer_delivery_status_repair'
+                );
+                $result = 'coordinated';
+            }
+        }
+
+        unset( $readiness );
+    }
+
+    $diagnostic_order = wc_get_order( $order->get_id() );
+
+    if ( $diagnostic_order instanceof WC_Order ) {
+        wctf_save_fazercards_giftcard_completed_email_repair_diagnostics(
+            $diagnostic_order,
+            $result
+        );
+    }
+
+    unset( $diagnostic_order );
+
+    return $result;
 }
 
 /**
@@ -3173,6 +3350,12 @@ function wctf_render_fazercards_giftcard_completed_email_admin_meta_box( $post_o
         __( 'Ready hook observed at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
             (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_ready_hook_at', true )
         ),
+        __( 'Email repair last at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_email_repair_last_at', true )
+        ),
+        __( 'Email repair result', 'wc-topup-fields' ) => sanitize_key(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_email_repair_result', true )
+        ),
         __( 'Last schedule reason', 'wc-topup-fields' ) => wctf_sanitize_fazercards_giftcard_delivery_error(
             $order->get_meta( '_wctf_fazer_giftcard_completed_email_schedule_reason', true )
         ),
@@ -3698,7 +3881,46 @@ function wctf_handle_fazercards_giftcard_customer_delivery_status() {
         wp_send_json_error( array( 'status' => 'blocked' ), 404 );
     }
 
+    if ( function_exists( 'wctf_maybe_run_fazercards_giftcard_customer_assisted_refresh_once' ) ) {
+        foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
+            if ( ! $item instanceof WC_Order_Item_Product ) {
+                continue;
+            }
+
+            wctf_maybe_run_fazercards_giftcard_customer_assisted_refresh_once(
+                $order,
+                $item,
+                absint( $item_id )
+            );
+        }
+
+        $refreshed_order = wc_get_order( $order_id );
+
+        if ( $refreshed_order instanceof WC_Order ) {
+            $order = $refreshed_order;
+        }
+
+        unset( $refreshed_order );
+    }
+
     $state = wctf_get_fazercards_giftcard_customer_order_state( $order );
+
+    if ( function_exists( 'wctf_maybe_repair_fazercards_giftcard_completed_email_coordination' ) ) {
+        wctf_maybe_repair_fazercards_giftcard_completed_email_coordination(
+            $order,
+            $state
+        );
+
+        $coordinated_order = wc_get_order( $order_id );
+
+        if ( $coordinated_order instanceof WC_Order ) {
+            $order = $coordinated_order;
+            $state = wctf_get_fazercards_giftcard_customer_order_state( $order );
+        }
+
+        unset( $coordinated_order );
+    }
+
     wp_send_json_success( $state );
 }
 
