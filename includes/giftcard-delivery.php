@@ -21,7 +21,7 @@ add_action( 'woocommerce_thankyou', 'wctf_render_fazercards_giftcard_customer_de
 add_action( 'add_meta_boxes', 'wctf_register_fazercards_giftcard_customer_delivery_diagnostics' );
 add_action(
     'wctf_fazercards_giftcard_ready_to_deliver',
-    'wctf_schedule_fazercards_giftcard_customer_delivery',
+    'wctf_handle_fazercards_giftcard_completed_email_item_ready',
     10,
     2
 );
@@ -32,12 +32,48 @@ add_action(
     2
 );
 add_action(
-    'admin_post_wctf_fazercards_giftcard_send_customer_delivery',
-    'wctf_handle_fazercards_giftcard_send_customer_delivery'
+    'wctf_fazercards_giftcard_send_completed_order_email',
+    'wctf_run_fazercards_giftcard_completed_order_email',
+    10,
+    1
 );
 add_action(
-    'admin_post_wctf_fazercards_giftcard_resend_customer_delivery',
-    'wctf_handle_fazercards_giftcard_resend_customer_delivery'
+    'admin_post_wctf_fazercards_giftcard_send_completed_order_email',
+    'wctf_handle_fazercards_giftcard_send_completed_order_email'
+);
+add_action(
+    'admin_post_wctf_fazercards_giftcard_resend_completed_order_email',
+    'wctf_handle_fazercards_giftcard_resend_completed_order_email'
+);
+add_filter(
+    'woocommerce_email_enabled_customer_completed_order',
+    'wctf_filter_fazercards_giftcard_completed_order_email_enabled',
+    20,
+    3
+);
+add_action(
+    'woocommerce_order_status_completed',
+    'wctf_handle_fazercards_giftcard_order_completed_email',
+    25,
+    3
+);
+add_action(
+    'woocommerce_email_after_order_table',
+    'wctf_render_fazercards_giftcard_completed_order_email_content',
+    20,
+    4
+);
+add_action(
+    'woocommerce_email_sent',
+    'wctf_observe_fazercards_giftcard_completed_order_email_sent',
+    20,
+    3
+);
+add_filter(
+    'woocommerce_mail_callback',
+    'wctf_filter_fazercards_giftcard_completed_order_mail_callback',
+    PHP_INT_MAX,
+    2
 );
 add_action(
     'wc_ajax_wctf_fazercards_giftcard_delivery_status',
@@ -564,8 +600,8 @@ function wctf_register_fazercards_giftcard_customer_delivery_diagnostics() {
         );
         add_meta_box(
             'wctf-fazercards-giftcard-customer-delivery',
-            __( 'FazerCards Gift Card Customer Delivery', 'wc-topup-fields' ),
-            'wctf_render_fazercards_giftcard_customer_delivery_admin_meta_box',
+            __( 'FazerCards Gift Card Completed Order Email', 'wc-topup-fields' ),
+            'wctf_render_fazercards_giftcard_completed_email_admin_meta_box',
             $screen,
             'normal',
             'default'
@@ -755,6 +791,1171 @@ function wctf_render_fazercards_giftcard_customer_delivery_diagnostics( $post_or
 }
 
 /**
+ * Detect immutable Gift Card delivery evidence on an order item.
+ *
+ * Current product metadata is deliberately ignored.
+ *
+ * @param WC_Order_Item_Product $item WooCommerce order item.
+ * @return bool
+ */
+function wctf_is_fazercards_giftcard_completed_email_item( $item ) {
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        return false;
+    }
+
+    if ( 'giftcard' === sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) ) ) {
+        return true;
+    }
+
+    return '' !== sanitize_text_field(
+        (string) $item->get_meta( '_wctf_fazer_giftcard_snapshot_created_at', true )
+    )
+        || '' !== sanitize_text_field(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_category_id', true )
+        )
+        || '' !== sanitize_text_field(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_card_id', true )
+        );
+}
+
+/**
+ * Determine whether an order contains immutable Gift Card delivery items.
+ *
+ * @param WC_Order $order WooCommerce order.
+ * @return bool
+ */
+function wctf_fazercards_giftcard_order_has_delivery_items( $order ) {
+    if ( ! $order instanceof WC_Order ) {
+        return false;
+    }
+
+    foreach ( $order->get_items( 'line_item' ) as $item ) {
+        if ( wctf_is_fazercards_giftcard_completed_email_item( $item ) ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Normalize the order-level Completed email coordinator status.
+ *
+ * @param mixed $status Raw status.
+ * @return string
+ */
+function wctf_normalize_fazercards_giftcard_completed_email_status( $status ) {
+    $status  = is_scalar( $status ) ? sanitize_key( (string) $status ) : '';
+    $allowed = array(
+        'not_started',
+        'held',
+        'scheduled',
+        'sending',
+        'sent',
+        'failed',
+        'blocked',
+        'legacy_delivered',
+    );
+
+    return in_array( $status, $allowed, true ) ? $status : 'not_started';
+}
+
+/**
+ * Store or inspect the request-local authorized Completed email context.
+ *
+ * No decrypted content is retained here.
+ *
+ * @param string $operation get, set, clear, injected, or observed.
+ * @param mixed  $value     Context or observed boolean.
+ * @return array|null
+ */
+function wctf_fazercards_giftcard_completed_email_runtime( $operation = 'get', $value = null ) {
+    static $context = null;
+
+    if ( 'set' === $operation ) {
+        $context = is_array( $value ) ? $value : null;
+    } elseif ( 'clear' === $operation ) {
+        $context = null;
+    } elseif ( 'injected' === $operation && is_array( $context ) ) {
+        $context['injected'] = true;
+    } elseif ( 'observed' === $operation && is_array( $context ) ) {
+        $context['send_observed'] = true;
+        $context['send_result']   = (bool) $value;
+    }
+
+    return is_array( $context ) ? $context : null;
+}
+
+/**
+ * Build whole-order readiness for the standard Completed Order email.
+ *
+ * Validated plaintext entries are returned for immediate in-memory rendering
+ * only and must never be persisted by callers.
+ *
+ * @param WC_Order $order WooCommerce order.
+ * @return array
+ */
+function wctf_get_fazercards_giftcard_completed_email_readiness( $order ) {
+    $result = array(
+        'has_giftcards' => false,
+        'status'        => 'held',
+        'reason'        => __( 'No Gift Card order items were detected.', 'wc-topup-fields' ),
+        'item_ids'      => array(),
+        'items'         => array(),
+    );
+
+    if ( ! $order instanceof WC_Order ) {
+        $result['status'] = 'blocked';
+        $result['reason'] = __( 'The WooCommerce order could not be loaded.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    $required_items = array();
+
+    foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
+        if ( wctf_is_fazercards_giftcard_completed_email_item( $item ) ) {
+            $required_items[ absint( $item_id ) ] = $item;
+        }
+    }
+
+    if ( empty( $required_items ) ) {
+        return $result;
+    }
+
+    $result['has_giftcards'] = true;
+
+    if ( 'completed' !== sanitize_key( (string) $order->get_status() ) ) {
+        $result['reason'] = __( 'The order is not completed yet.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    if ( ! wctf_is_fazercards_giftcard_customer_order_paid( $order ) ) {
+        $result['status'] = 'blocked';
+        $result['reason'] = __( 'The completed order does not pass WooCommerce paid validation.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    $recipient = sanitize_email( (string) $order->get_billing_email() );
+
+    if ( '' === $recipient || ! is_email( $recipient ) ) {
+        $result['status'] = 'blocked';
+        $result['reason'] = __( 'The WooCommerce billing email is missing or invalid.', 'wc-topup-fields' );
+        return $result;
+    }
+
+    $has_held = false;
+
+    foreach ( $required_items as $item_id => $item ) {
+        $kind        = sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) );
+        $snapshot_at = sanitize_text_field(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_snapshot_created_at', true )
+        );
+        $category_id = sanitize_text_field(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_category_id', true )
+        );
+        $card_id     = sanitize_text_field(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_card_id', true )
+        );
+
+        if ( 'giftcard' !== $kind || '' === $snapshot_at || '' === $category_id || '' === $card_id ) {
+            $result['status'] = 'blocked';
+            $result['reason'] = __( 'A Gift Card order-item snapshot is incomplete or malformed.', 'wc-topup-fields' );
+            unset( $result['items'] );
+            $result['items'] = array();
+            return $result;
+        }
+
+        $purchase_status = function_exists( 'wctf_normalize_fazercards_giftcard_purchase_status' )
+            ? wctf_normalize_fazercards_giftcard_purchase_status(
+                $item->get_meta( '_wctf_fazer_giftcard_purchase_status', true )
+            )
+            : sanitize_key( (string) $item->get_meta( '_wctf_fazer_giftcard_purchase_status', true ) );
+        $fulfillment_status = sanitize_key(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
+        );
+
+        if (
+            in_array( $purchase_status, array( 'failed', 'failed_uncertain', 'storage_failed' ), true )
+            || in_array( $fulfillment_status, array( 'needs_admin_review', 'stopped' ), true )
+        ) {
+            $result['status'] = 'blocked';
+            $result['reason'] = __( 'A Gift Card item requires administrator review before email delivery.', 'wc-topup-fields' );
+            $result['items']  = array();
+            return $result;
+        }
+
+        if ( 'ready_to_deliver' !== $fulfillment_status ) {
+            $has_held = true;
+            continue;
+        }
+
+        $delivery_data = wctf_get_fazercards_giftcard_customer_delivery_data(
+            $order,
+            $item,
+            $item_id
+        );
+
+        if ( is_wp_error( $delivery_data ) || empty( $delivery_data['entries'] ) ) {
+            unset( $delivery_data );
+            $result['status'] = 'blocked';
+            $result['reason'] = __( 'An encrypted Gift Card payload failed authenticated delivery validation.', 'wc-topup-fields' );
+            $result['items']  = array();
+            return $result;
+        }
+
+        $result['item_ids'][] = $item_id;
+        $result['items'][]    = array(
+            'item_id'      => $item_id,
+            'product_name' => sanitize_text_field( $item->get_name() ),
+            'quantity'     => max( 0, (int) $item->get_quantity() ),
+            'mode'         => isset( $delivery_data['mode'] )
+                ? sanitize_key( (string) $delivery_data['mode'] )
+                : '',
+            'entries'      => array_values( $delivery_data['entries'] ),
+        );
+        unset( $delivery_data );
+    }
+
+    if ( $has_held || count( $result['item_ids'] ) !== count( $required_items ) ) {
+        $result['status'] = 'held';
+        $result['reason'] = __( 'Gift Card Completed Order email is waiting for all Gift Card items to become ready.', 'wc-topup-fields' );
+        $result['items']  = array();
+        return $result;
+    }
+
+    $result['status'] = 'ready';
+    $result['reason'] = __( 'All Gift Card items are ready for the WooCommerce Completed Order email.', 'wc-topup-fields' );
+
+    return $result;
+}
+
+/**
+ * Persist safe order-level Completed email coordinator state.
+ *
+ * @param WC_Order $order  WooCommerce order.
+ * @param string   $status Coordinator status.
+ * @param string   $error  Safe short error.
+ * @return void
+ */
+function wctf_save_fazercards_giftcard_completed_email_state( $order, $status, $error = '' ) {
+    if ( ! $order instanceof WC_Order || ! wctf_fazercards_giftcard_order_has_delivery_items( $order ) ) {
+        return;
+    }
+
+    $status   = wctf_normalize_fazercards_giftcard_completed_email_status( $status );
+    $error    = wctf_sanitize_fazercards_giftcard_delivery_error( $error );
+    $previous = wctf_normalize_fazercards_giftcard_completed_email_status(
+        $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+    $now      = gmdate( 'Y-m-d H:i:s' );
+
+    $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_status', $status );
+
+    if ( 'held' === $status && '' === (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_held_at', true ) ) {
+        $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_held_at', $now );
+    }
+
+    if ( '' === $error ) {
+        $order->delete_meta_data( '_wctf_fazer_giftcard_completed_email_last_error' );
+    } else {
+        $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_last_error', $error );
+    }
+
+    $order->save();
+
+    if ( $previous === $status ) {
+        return;
+    }
+
+    if ( 'held' === $status ) {
+        $order->add_order_note(
+            __( 'Gift Card Completed Order email held until all Gift Card items are ready.', 'wc-topup-fields' ),
+            0,
+            false
+        );
+    } elseif ( 'blocked' === $status ) {
+        $order->add_order_note(
+            __( 'WooCommerce Completed Order email blocked; administrator review required.', 'wc-topup-fields' ),
+            0,
+            false
+        );
+    }
+}
+
+/**
+ * Apply conservative compatibility for orders that predate the coordinator.
+ *
+ * @param WC_Order $order    WooCommerce order.
+ * @param bool     $new_flow Whether this is a new completed transition.
+ * @return string
+ */
+function wctf_apply_fazercards_giftcard_completed_email_legacy_state( $order, $new_flow = false ) {
+    if ( ! $order instanceof WC_Order ) {
+        return 'not_started';
+    }
+
+    $raw_status = sanitize_key(
+        (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+
+    if ( '' !== $raw_status ) {
+        return wctf_normalize_fazercards_giftcard_completed_email_status( $raw_status );
+    }
+
+    $legacy_delivered = false;
+
+    foreach ( $order->get_items( 'line_item' ) as $item ) {
+        if (
+            wctf_is_fazercards_giftcard_completed_email_item( $item )
+            && 'delivered' === sanitize_key(
+                (string) $item->get_meta( '_wctf_fazer_giftcard_delivery_status', true )
+            )
+        ) {
+            $legacy_delivered = true;
+            break;
+        }
+    }
+
+    if ( $legacy_delivered || ( ! $new_flow && 'completed' === $order->get_status() ) ) {
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_status',
+            'legacy_delivered'
+        );
+        $order->save();
+        return 'legacy_delivered';
+    }
+
+    if ( $new_flow ) {
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_status',
+            'not_started'
+        );
+        $order->save();
+    }
+
+    return 'not_started';
+}
+
+/**
+ * Determine whether the order-level Completed email action is scheduled.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @return bool
+ */
+function wctf_is_fazercards_giftcard_completed_email_scheduled( $order_id ) {
+    $scheduled = wctf_get_fazercards_giftcard_completed_email_future_action( $order_id );
+
+    return ! empty( $scheduled['scheduled'] );
+}
+
+/**
+ * Inspect only a future action for this exact order and scheduler group.
+ *
+ * Historical completed actions never count as duplicates.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @return array
+ */
+function wctf_get_fazercards_giftcard_completed_email_future_action( $order_id ) {
+    $hook  = 'wctf_fazercards_giftcard_send_completed_order_email';
+    $args  = array( 'order_id' => absint( $order_id ) );
+    $group = 'wctf-giftcards';
+    $result = array(
+        'scheduled' => false,
+        'backend'   => function_exists( 'as_schedule_single_action' )
+            ? 'action_scheduler'
+            : 'wp_cron',
+        'timestamp' => 0,
+    );
+
+    if ( function_exists( 'as_next_scheduled_action' ) ) {
+        $timestamp = as_next_scheduled_action( $hook, $args, $group );
+
+        if ( false !== $timestamp && 0 < absint( $timestamp ) ) {
+            $result['scheduled'] = true;
+            $result['timestamp'] = absint( $timestamp );
+        }
+
+        return $result;
+    }
+
+    if ( function_exists( 'as_has_scheduled_action' ) ) {
+        $result['scheduled'] = (bool) as_has_scheduled_action( $hook, $args, $group );
+        return $result;
+    }
+
+    $timestamp = wp_next_scheduled( $hook, $args );
+
+    if ( false !== $timestamp && 0 < absint( $timestamp ) ) {
+        $result['scheduled'] = true;
+        $result['timestamp'] = absint( $timestamp );
+    }
+
+    return $result;
+}
+
+/**
+ * Schedule one order-level WooCommerce Completed Order email.
+ *
+ * @param WC_Order $order  WooCommerce order.
+ * @param string   $reason Safe scheduling reason.
+ * @return array
+ */
+function wctf_schedule_fazercards_giftcard_completed_order_email( $order, $reason = '' ) {
+    $result = array(
+        'result'    => 'skipped',
+        'backend'   => function_exists( 'as_schedule_single_action' )
+            ? 'action_scheduler'
+            : 'wp_cron',
+        'timestamp' => 0,
+        'reason'    => wctf_sanitize_fazercards_giftcard_delivery_error( $reason ),
+    );
+
+    if ( ! $order instanceof WC_Order ) {
+        return $result;
+    }
+
+    $order_id = absint( $order->get_id() );
+    $status   = wctf_normalize_fazercards_giftcard_completed_email_status(
+        $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+
+    if ( in_array( $status, array( 'sending', 'sent', 'legacy_delivered' ), true ) ) {
+        return $result;
+    }
+
+    $future_action = wctf_get_fazercards_giftcard_completed_email_future_action( $order_id );
+
+    if ( ! empty( $future_action['scheduled'] ) ) {
+        $result['result']    = 'already_scheduled';
+        $result['backend']   = $future_action['backend'];
+        $result['timestamp'] = absint( $future_action['timestamp'] );
+
+        if ( 'scheduled' !== $status ) {
+            $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_status', 'scheduled' );
+            $order->update_meta_data(
+                '_wctf_fazer_giftcard_completed_email_scheduled_at',
+                0 < $result['timestamp']
+                    ? gmdate( 'Y-m-d H:i:s', $result['timestamp'] )
+                    : gmdate( 'Y-m-d H:i:s' )
+            );
+            $order->update_meta_data(
+                '_wctf_fazer_giftcard_completed_email_scheduler_backend',
+                sanitize_key( $result['backend'] )
+            );
+            $order->update_meta_data(
+                '_wctf_fazer_giftcard_completed_email_schedule_reason',
+                $result['reason']
+            );
+            $order->delete_meta_data( '_wctf_fazer_giftcard_completed_email_last_error' );
+            $order->save();
+        }
+
+        return $result;
+    }
+
+    $hook      = 'wctf_fazercards_giftcard_send_completed_order_email';
+    $args      = array( 'order_id' => $order_id );
+    $timestamp = time() + 1;
+    $scheduled = false;
+
+    if ( function_exists( 'as_schedule_single_action' ) ) {
+        $scheduled = (bool) as_schedule_single_action(
+            $timestamp,
+            $hook,
+            $args,
+            'wctf-giftcards'
+        );
+    } else {
+        $scheduled = (bool) wp_schedule_single_event( $timestamp, $hook, $args );
+    }
+
+    if ( ! $scheduled ) {
+        wctf_save_fazercards_giftcard_completed_email_state(
+            $order,
+            'blocked',
+            __( 'The WooCommerce Completed Order email could not be scheduled.', 'wc-topup-fields' )
+        );
+        $result['result'] = 'failed';
+        return $result;
+    }
+
+    $result['result']    = 'scheduled';
+    $result['timestamp'] = $timestamp;
+    $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_status', 'scheduled' );
+    $order->update_meta_data(
+        '_wctf_fazer_giftcard_completed_email_scheduled_at',
+        gmdate( 'Y-m-d H:i:s', $timestamp )
+    );
+    $order->update_meta_data(
+        '_wctf_fazer_giftcard_completed_email_scheduler_backend',
+        sanitize_key( $result['backend'] )
+    );
+    $order->update_meta_data(
+        '_wctf_fazer_giftcard_completed_email_schedule_reason',
+        $result['reason']
+    );
+    $order->delete_meta_data( '_wctf_fazer_giftcard_completed_email_last_error' );
+    $order->save();
+
+    return $result;
+}
+
+/**
+ * Coordinate one completed-order or item-ready event.
+ *
+ * @param WC_Order $order  WooCommerce order.
+ * @param string   $reason Safe coordination reason.
+ * @return void
+ */
+function wctf_maybe_coordinate_fazercards_giftcard_completed_email( $order, $reason = '' ) {
+    if (
+        ! $order instanceof WC_Order
+        || ! wctf_fazercards_giftcard_order_has_delivery_items( $order )
+        || 'completed' !== sanitize_key( (string) $order->get_status() )
+    ) {
+        return;
+    }
+
+    $status = wctf_normalize_fazercards_giftcard_completed_email_status(
+        $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+
+    if ( in_array( $status, array( 'sending', 'sent', 'legacy_delivered' ), true ) ) {
+        return;
+    }
+
+    $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+
+    if ( 'ready' === $readiness['status'] ) {
+        $attempts = absint(
+            $order->get_meta( '_wctf_fazer_giftcard_completed_email_attempts', true )
+        );
+
+        if ( 'failed' === $status || ( 'blocked' === $status && 0 < $attempts ) ) {
+            unset( $readiness );
+            return;
+        }
+
+        wctf_schedule_fazercards_giftcard_completed_order_email( $order, $reason );
+    } elseif ( 'blocked' === $readiness['status'] ) {
+        wctf_save_fazercards_giftcard_completed_email_state(
+            $order,
+            'blocked',
+            $readiness['reason']
+        );
+    } else {
+        wctf_save_fazercards_giftcard_completed_email_state( $order, 'held', '' );
+    }
+
+    unset( $readiness );
+}
+
+/**
+ * Coordinate the new Completed transition before automatic Gift Card purchase.
+ *
+ * @param int      $order_id         WooCommerce order ID.
+ * @param WC_Order $order            WooCommerce order object when supplied.
+ * @param array    $status_transition Status transition context.
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_order_completed_email( $order_id, $order = null, $status_transition = array() ) {
+    unset( $status_transition );
+
+    if ( ! $order instanceof WC_Order ) {
+        $order = wc_get_order( absint( $order_id ) );
+    }
+
+    if ( ! $order instanceof WC_Order || ! wctf_fazercards_giftcard_order_has_delivery_items( $order ) ) {
+        return;
+    }
+
+    $order->update_meta_data(
+        '_wctf_fazer_giftcard_completed_email_completed_hook_at',
+        gmdate( 'Y-m-d H:i:s' )
+    );
+    $order->save();
+
+    $status = wctf_apply_fazercards_giftcard_completed_email_legacy_state( $order, true );
+
+    if ( 'legacy_delivered' !== $status ) {
+        wctf_maybe_coordinate_fazercards_giftcard_completed_email(
+            $order,
+            'woocommerce_order_status_completed'
+        );
+    }
+}
+
+/**
+ * Recheck the whole order when one Gift Card item becomes ready.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @param int $item_id  WooCommerce order item ID.
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_completed_email_item_ready( $order_id, $item_id ) {
+    $order = wc_get_order( absint( $order_id ) );
+    $item  = $order instanceof WC_Order ? $order->get_item( absint( $item_id ) ) : false;
+
+    if (
+        ! $order instanceof WC_Order
+        || ! $item instanceof WC_Order_Item_Product
+        || absint( $item->get_order_id() ) !== absint( $order->get_id() )
+        || ! wctf_is_fazercards_giftcard_completed_email_item( $item )
+        || ! wctf_fazercards_giftcard_order_has_delivery_items( $order )
+    ) {
+        return;
+    }
+
+    $order->update_meta_data(
+        '_wctf_fazer_giftcard_completed_email_ready_hook_at',
+        gmdate( 'Y-m-d H:i:s' )
+    );
+    $order->save();
+
+    if ( 'completed' !== sanitize_key( (string) $order->get_status() ) ) {
+        return;
+    }
+
+    $new_flow = doing_action( 'woocommerce_order_status_completed' );
+    $status   = wctf_apply_fazercards_giftcard_completed_email_legacy_state( $order, $new_flow );
+
+    if ( 'legacy_delivered' !== $status ) {
+        wctf_maybe_coordinate_fazercards_giftcard_completed_email(
+            $order,
+            'wctf_fazercards_giftcard_ready_to_deliver'
+        );
+    }
+}
+
+/**
+ * Suppress uncoordinated Gift Card Completed Order emails.
+ *
+ * @param bool          $enabled Original WooCommerce setting result.
+ * @param object|false  $object  Email object, usually WC_Order.
+ * @param WC_Email|null $email   WooCommerce email instance when supplied.
+ * @return bool
+ */
+function wctf_filter_fazercards_giftcard_completed_order_email_enabled( $enabled, $object = false, $email = null ) {
+    $order = $object instanceof WC_Order
+        ? $object
+        : ( $email instanceof WC_Email && $email->object instanceof WC_Order ? $email->object : false );
+
+    if ( ! $order instanceof WC_Order || ! wctf_fazercards_giftcard_order_has_delivery_items( $order ) ) {
+        return $enabled;
+    }
+
+    $context = wctf_fazercards_giftcard_completed_email_runtime();
+
+    if (
+        ! is_array( $context )
+        || ! isset( $context['order_id'] )
+        || absint( $context['order_id'] ) !== absint( $order->get_id() )
+    ) {
+        return false;
+    }
+
+    $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+    $status    = wctf_normalize_fazercards_giftcard_completed_email_status(
+        $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+    $mode      = isset( $context['mode'] ) ? sanitize_key( $context['mode'] ) : 'automatic';
+
+    if ( 'ready' !== $readiness['status'] ) {
+        unset( $readiness );
+        return false;
+    }
+
+    unset( $readiness );
+
+    if ( 'resend' === $mode ) {
+        return in_array( $status, array( 'sending', 'sent', 'legacy_delivered' ), true )
+            ? (bool) $enabled
+            : false;
+    }
+
+    return in_array( $status, array( 'sending', 'scheduled' ), true )
+        ? (bool) $enabled
+        : false;
+}
+
+/**
+ * Return the order-level Completed email lock option name.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @return string
+ */
+function wctf_get_fazercards_giftcard_completed_email_lock_key( $order_id ) {
+    return 'wctf_fazer_giftcard_completed_email_lock_' . absint( $order_id );
+}
+
+/**
+ * Acquire a five-minute atomic order-level email lock.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @return string|WP_Error
+ */
+function wctf_acquire_fazercards_giftcard_completed_email_lock( $order_id ) {
+    $lock_key = wctf_get_fazercards_giftcard_completed_email_lock_key( $order_id );
+    $token    = function_exists( 'wp_generate_uuid4' )
+        ? wp_generate_uuid4()
+        : wp_hash( absint( $order_id ) . '|' . microtime( true ) );
+    $now      = time();
+    $value    = wp_json_encode(
+        array(
+            'owner'      => $token,
+            'created_at' => $now,
+            'expires_at' => $now + 300,
+        )
+    );
+
+    if ( add_option( $lock_key, $value, '', 'no' ) ) {
+        return $token;
+    }
+
+    $existing = json_decode( (string) get_option( $lock_key, '' ), true );
+
+    if ( is_array( $existing ) && isset( $existing['expires_at'] ) && (int) $existing['expires_at'] < $now ) {
+        delete_option( $lock_key );
+
+        if ( add_option( $lock_key, $value, '', 'no' ) ) {
+            return $token;
+        }
+    }
+
+    return new WP_Error(
+        'wctf_giftcard_completed_email_locked',
+        __( 'Another Gift Card Completed Order email process is already active.', 'wc-topup-fields' )
+    );
+}
+
+/**
+ * Release the email lock only for its current owner.
+ *
+ * @param int    $order_id WooCommerce order ID.
+ * @param string $token    Owner token.
+ * @return void
+ */
+function wctf_release_fazercards_giftcard_completed_email_lock( $order_id, $token ) {
+    $lock_key = wctf_get_fazercards_giftcard_completed_email_lock_key( $order_id );
+    $existing = json_decode( (string) get_option( $lock_key, '' ), true );
+    $owner    = is_array( $existing ) && isset( $existing['owner'] ) && is_string( $existing['owner'] )
+        ? $existing['owner']
+        : '';
+
+    if ( '' !== $owner && '' !== $token && hash_equals( $owner, $token ) ) {
+        delete_option( $lock_key );
+    }
+}
+
+/**
+ * Find the standard WooCommerce customer Completed Order email object.
+ *
+ * @return WC_Email|false
+ */
+function wctf_get_fazercards_giftcard_customer_completed_order_email() {
+    if ( ! function_exists( 'WC' ) || ! WC() || ! WC()->mailer() ) {
+        return false;
+    }
+
+    foreach ( (array) WC()->mailer()->get_emails() as $email ) {
+        if ( $email instanceof WC_Email && 'customer_completed_order' === (string) $email->id ) {
+            return $email;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Process one locked standard WooCommerce Completed Order email attempt.
+ *
+ * @param int    $order_id WooCommerce order ID.
+ * @param string $mode     automatic, send, or resend.
+ * @return array
+ */
+function wctf_process_fazercards_giftcard_completed_order_email( $order_id, $mode = 'automatic' ) {
+    $mode   = in_array( $mode, array( 'automatic', 'send', 'resend' ), true ) ? $mode : 'automatic';
+    $order  = wc_get_order( absint( $order_id ) );
+    $result = array(
+        'success' => false,
+        'status'  => 'blocked',
+        'message' => __( 'The WooCommerce Completed Order email was not sent.', 'wc-topup-fields' ),
+    );
+
+    if ( ! $order instanceof WC_Order || ! wctf_fazercards_giftcard_order_has_delivery_items( $order ) ) {
+        return $result;
+    }
+
+    $lock_token = wctf_acquire_fazercards_giftcard_completed_email_lock( $order->get_id() );
+
+    if ( is_wp_error( $lock_token ) ) {
+        $result['message'] = wctf_sanitize_fazercards_giftcard_delivery_error(
+            $lock_token->get_error_message()
+        );
+        return $result;
+    }
+
+    $previous_status = wctf_normalize_fazercards_giftcard_completed_email_status(
+        $order->get_meta( '_wctf_fazer_giftcard_completed_email_status', true )
+    );
+    $attempt_started = false;
+
+    try {
+        if ( 'automatic' === $mode && in_array( $previous_status, array( 'sending', 'sent', 'failed', 'blocked', 'legacy_delivered' ), true ) ) {
+            $result['status']  = $previous_status;
+            $result['message'] = __( 'Automatic Completed Order email was skipped safely.', 'wc-topup-fields' );
+            return $result;
+        }
+
+        if ( 'send' === $mode && ! in_array( $previous_status, array( 'not_started', 'held', 'scheduled', 'failed', 'blocked' ), true ) ) {
+            $result['status']  = $previous_status;
+            $result['message'] = __( 'This order is not eligible for the SEND action.', 'wc-topup-fields' );
+            return $result;
+        }
+
+        if ( 'resend' === $mode && ! in_array( $previous_status, array( 'sent', 'legacy_delivered' ), true ) ) {
+            $result['status']  = $previous_status;
+            $result['message'] = __( 'This order is not eligible for the RESEND action.', 'wc-topup-fields' );
+            return $result;
+        }
+
+        $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+
+        if ( 'ready' !== $readiness['status'] ) {
+            $result['status']  = $readiness['status'];
+            $result['message'] = $readiness['reason'];
+
+            if ( 'automatic' === $mode ) {
+                wctf_save_fazercards_giftcard_completed_email_state(
+                    $order,
+                    'blocked' === $readiness['status'] ? 'blocked' : 'held',
+                    'blocked' === $readiness['status'] ? $readiness['reason'] : ''
+                );
+            }
+
+            unset( $readiness );
+            return $result;
+        }
+
+        unset( $readiness );
+
+        $email = wctf_get_fazercards_giftcard_customer_completed_order_email();
+
+        if ( ! $email instanceof WC_Email || ! method_exists( $email, 'trigger' ) ) {
+            wctf_save_fazercards_giftcard_completed_email_state(
+                $order,
+                'blocked',
+                __( 'The WooCommerce Customer Completed Order email object is unavailable.', 'wc-topup-fields' )
+            );
+            return $result;
+        }
+
+        $email_enabled = method_exists( $email, 'get_option' )
+            ? (string) $email->get_option( 'enabled', 'yes' )
+            : ( isset( $email->enabled ) ? (string) $email->enabled : 'no' );
+
+        if ( 'yes' !== $email_enabled ) {
+            $result['message'] = __( 'The WooCommerce Customer Completed Order email is disabled.', 'wc-topup-fields' );
+            wctf_save_fazercards_giftcard_completed_email_state(
+                $order,
+                'blocked',
+                $result['message']
+            );
+            return $result;
+        }
+
+        $recipient = sanitize_email( (string) $order->get_billing_email() );
+        $attempts  = absint(
+            $order->get_meta( '_wctf_fazer_giftcard_completed_email_attempts', true )
+        ) + 1;
+        $attempt_token = function_exists( 'wp_generate_uuid4' )
+            ? wp_generate_uuid4()
+            : wp_hash( $order->get_id() . '|' . $attempts . '|' . microtime( true ) );
+
+        $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_status', 'sending' );
+        $order->update_meta_data(
+            '_wctf_fazer_giftcard_completed_email_last_attempt_at',
+            gmdate( 'Y-m-d H:i:s' )
+        );
+        $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_attempts', $attempts );
+        $order->delete_meta_data( '_wctf_fazer_giftcard_completed_email_last_error' );
+        $order->save();
+        $attempt_started = true;
+
+        wctf_fazercards_giftcard_completed_email_runtime(
+            'set',
+            array(
+                'order_id'      => absint( $order->get_id() ),
+                'mode'          => $mode,
+                'attempt_token' => sanitize_text_field( $attempt_token ),
+                'injected'      => false,
+                'send_observed' => false,
+                'send_result'   => false,
+            )
+        );
+
+        try {
+            $email->trigger( $order->get_id(), $order );
+            $runtime = wctf_fazercards_giftcard_completed_email_runtime();
+        } finally {
+            wctf_fazercards_giftcard_completed_email_runtime( 'clear' );
+        }
+
+        $injected = is_array( $runtime ) && ! empty( $runtime['injected'] );
+        $observed = is_array( $runtime ) && ! empty( $runtime['send_observed'] );
+        $accepted = $observed && ! empty( $runtime['send_result'] );
+
+        if ( $accepted && $injected ) {
+            $sent_at = gmdate( 'Y-m-d H:i:s' );
+            $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_status', 'sent' );
+
+            if ( '' === (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_sent_at', true ) ) {
+                $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_sent_at', $sent_at );
+            }
+
+            $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_recipient', $recipient );
+            $order->delete_meta_data( '_wctf_fazer_giftcard_completed_email_last_error' );
+            $order->save();
+            $order->add_order_note(
+                'resend' === $mode
+                    ? __( 'WooCommerce Completed Order email resent by administrator.', 'wc-topup-fields' )
+                    : __( 'WooCommerce Completed Order email sent with Gift Card delivery content.', 'wc-topup-fields' ),
+                0,
+                false
+            );
+            $result['success'] = true;
+            $result['status']  = 'sent';
+            $result['message'] = __( 'The WooCommerce Completed Order email was accepted by the mail transport.', 'wc-topup-fields' );
+        } else {
+            if ( ! $injected ) {
+                $error = __( 'Gift Card content injection was not observed. The active email template must restore woocommerce_email_after_order_table.', 'wc-topup-fields' );
+            } elseif ( ! $observed ) {
+                $error = __( 'WooCommerce did not provide a reliable email-send result. Administrator review is required.', 'wc-topup-fields' );
+            } else {
+                $error = __( 'The WordPress mail transport did not accept the WooCommerce Completed Order email.', 'wc-topup-fields' );
+            }
+
+            $failure_status = 'resend' === $mode
+                ? $previous_status
+                : ( $injected && $observed ? 'failed' : 'blocked' );
+            $order->update_meta_data(
+                '_wctf_fazer_giftcard_completed_email_status',
+                $failure_status
+            );
+            $order->update_meta_data(
+                '_wctf_fazer_giftcard_completed_email_last_error',
+                wctf_sanitize_fazercards_giftcard_delivery_error( $error )
+            );
+            $order->save();
+            $result['status']  = $failure_status;
+            $result['message'] = $error;
+
+            if ( 'resend' !== $mode ) {
+                $order->add_order_note(
+                    __( 'WooCommerce Completed Order email blocked; administrator review required.', 'wc-topup-fields' ),
+                    0,
+                    false
+                );
+            }
+        }
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+        wctf_fazercards_giftcard_completed_email_runtime( 'clear' );
+
+        $error = $attempt_started
+            ? __( 'The WooCommerce Completed Order email outcome is uncertain. Administrator review is required.', 'wc-topup-fields' )
+            : __( 'The WooCommerce Completed Order email could not be started safely.', 'wc-topup-fields' );
+        $failure_status = 'resend' === $mode ? $previous_status : 'blocked';
+        $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_status', $failure_status );
+        $order->update_meta_data( '_wctf_fazer_giftcard_completed_email_last_error', $error );
+        $order->save();
+        $result['status']  = $failure_status;
+        $result['message'] = $error;
+    } finally {
+        wctf_fazercards_giftcard_completed_email_runtime( 'clear' );
+        wctf_release_fazercards_giftcard_completed_email_lock(
+            $order->get_id(),
+            $lock_token
+        );
+    }
+
+    return $result;
+}
+
+/**
+ * Run one scheduled Completed Order email coordinator action.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @return void
+ */
+function wctf_run_fazercards_giftcard_completed_order_email( $order_id ) {
+    wctf_process_fazercards_giftcard_completed_order_email( absint( $order_id ), 'automatic' );
+}
+
+/**
+ * Observe only the currently authorized Completed Order email result.
+ *
+ * @param bool     $sent  Whether the transport accepted the message.
+ * @param string   $id    WooCommerce email ID.
+ * @param WC_Email $email WooCommerce email object.
+ * @return void
+ */
+function wctf_observe_fazercards_giftcard_completed_order_email_sent( $sent, $id = '', $email = null ) {
+    $context = wctf_fazercards_giftcard_completed_email_runtime();
+    $email_matches = is_array( $context )
+        && isset( $context['order_id'] )
+        && (
+            null === $email
+            || (
+                $email instanceof WC_Email
+                && $email->object instanceof WC_Order
+                && absint( $email->object->get_id() ) === absint( $context['order_id'] )
+            )
+        );
+
+    if (
+        ! is_array( $context )
+        || 'customer_completed_order' !== (string) $id
+        || ! $email_matches
+    ) {
+        return;
+    }
+
+    wctf_fazercards_giftcard_completed_email_runtime( 'observed', (bool) $sent );
+}
+
+/**
+ * Prevent transport when the active template omitted Gift Card injection.
+ *
+ * @param callable|string $callback Current mail callback.
+ * @param WC_Email        $email    WooCommerce email object.
+ * @return callable|string
+ */
+function wctf_filter_fazercards_giftcard_completed_order_mail_callback( $callback, $email = null ) {
+    $context = wctf_fazercards_giftcard_completed_email_runtime();
+    $email_matches = is_array( $context )
+        && isset( $context['order_id'] )
+        && (
+            null === $email
+            || (
+                $email instanceof WC_Email
+                && 'customer_completed_order' === (string) $email->id
+                && $email->object instanceof WC_Order
+                && absint( $email->object->get_id() ) === absint( $context['order_id'] )
+            )
+        );
+
+    if (
+        is_array( $context )
+        && $email_matches
+        && empty( $context['injected'] )
+    ) {
+        return 'wctf_block_fazercards_giftcard_uninjected_completed_email';
+    }
+
+    return $callback;
+}
+
+/**
+ * Fail-closed mail callback used when content injection was not observed.
+ *
+ * @param mixed $to          Recipient supplied by WooCommerce.
+ * @param mixed $subject     Subject supplied by WooCommerce.
+ * @param mixed $message     Message supplied by WooCommerce.
+ * @param mixed $headers     Headers supplied by WooCommerce.
+ * @param mixed $attachments Attachments supplied by WooCommerce.
+ * @return bool
+ */
+function wctf_block_fazercards_giftcard_uninjected_completed_email( $to = null, $subject = null, $message = null, $headers = null, $attachments = null ) {
+    unset( $to, $subject, $message, $headers, $attachments );
+    return false;
+}
+
+/**
+ * Render validated Gift Card entries in the standard Completed Order email.
+ *
+ * @param WC_Order $order         WooCommerce order.
+ * @param bool     $sent_to_admin Whether this is an admin email.
+ * @param bool     $plain_text    Whether plain-text output is requested.
+ * @param WC_Email $email         WooCommerce email object.
+ * @return void
+ */
+function wctf_render_fazercards_giftcard_completed_order_email_content( $order, $sent_to_admin, $plain_text = false, $email = null ) {
+    $context = wctf_fazercards_giftcard_completed_email_runtime();
+
+    if (
+        $sent_to_admin
+        || ! $order instanceof WC_Order
+        || ! $email instanceof WC_Email
+        || 'customer_completed_order' !== (string) $email->id
+        || ! is_array( $context )
+        || ! isset( $context['order_id'] )
+        || absint( $context['order_id'] ) !== absint( $order->get_id() )
+    ) {
+        return;
+    }
+
+    $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+
+    if ( 'ready' !== $readiness['status'] || empty( $readiness['items'] ) ) {
+        unset( $readiness );
+        return;
+    }
+
+    wctf_fazercards_giftcard_completed_email_runtime( 'injected' );
+
+    if ( $plain_text ) {
+        echo "\n" . esc_html__( 'Gift Card Delivery', 'wc-topup-fields' ) . "\n";
+        echo "==============================\n";
+
+        foreach ( $readiness['items'] as $delivery_item ) {
+            $quantity = max( 0, absint( $delivery_item['quantity'] ) );
+            echo esc_html( $delivery_item['product_name'] );
+
+            if ( 0 < $quantity ) {
+                echo ' x ' . esc_html( (string) $quantity );
+            }
+
+            echo "\n";
+
+            foreach ( $delivery_item['entries'] as $index => $entry ) {
+                echo esc_html( sprintf( __( 'Gift Card #%d', 'wc-topup-fields' ), absint( $index + 1 ) ) ) . ":\n";
+                echo esc_html( (string) $entry ) . "\n";
+            }
+
+            echo "\n";
+        }
+
+        echo esc_html__( 'Keep this code safe.', 'wc-topup-fields' ) . "\n\n";
+    } else {
+        echo '<section class="wctf-giftcard-completed-email">';
+        echo '<h2>' . esc_html__( 'Gift Card Delivery', 'wc-topup-fields' ) . '</h2>';
+
+        foreach ( $readiness['items'] as $delivery_item ) {
+            $quantity = max( 0, absint( $delivery_item['quantity'] ) );
+            echo '<h3>' . esc_html( $delivery_item['product_name'] );
+
+            if ( 0 < $quantity ) {
+                echo ' &times; ' . esc_html( (string) $quantity );
+            }
+
+            echo '</h3>';
+
+            foreach ( $delivery_item['entries'] as $index => $entry ) {
+                echo '<p><strong>' . esc_html( sprintf( __( 'Gift Card #%d', 'wc-topup-fields' ), absint( $index + 1 ) ) ) . '</strong></p>';
+                echo '<pre style="white-space:pre-wrap;word-break:break-word">' . esc_html( (string) $entry ) . '</pre>';
+            }
+        }
+
+        echo '<p><strong>' . esc_html__( 'Keep this code safe.', 'wc-topup-fields' ) . '</strong></p>';
+        echo '</section>';
+    }
+
+    unset( $readiness );
+}
+
+/**
  * Normalize the private customer email delivery status.
  *
  * @param mixed $status Raw delivery status.
@@ -882,6 +2083,10 @@ function wctf_is_fazercards_giftcard_customer_delivery_scheduled( $order_id, $it
  * @return void
  */
 function wctf_schedule_fazercards_giftcard_customer_delivery( $order_id, $item_id ) {
+    unset( $order_id, $item_id );
+    return;
+
+    // Legacy implementation retained below for source compatibility only.
     $order_id = absint( $order_id );
     $item_id  = absint( $item_id );
     $order    = wc_get_order( $order_id );
@@ -947,13 +2152,15 @@ function wctf_schedule_fazercards_giftcard_customer_delivery( $order_id, $item_i
  * @return array Subject and plain-text body.
  */
 function wctf_build_fazercards_giftcard_customer_delivery_email( $order, $product_name, $entries ) {
+    return array(
+        'subject' => '',
+        'body'    => '',
+    );
+
+    // Legacy implementation retained below for source compatibility only.
     $order_number = sanitize_text_field( (string) $order->get_order_number() );
     $product_name = sanitize_text_field( (string) $product_name );
-    $subject      = sprintf(
-        __( 'Gift Card for Order #%1$s - %2$s', 'wc-topup-fields' ),
-        $order_number,
-        $product_name
-    );
+    $subject      = '';
     $lines        = array(
         __( 'Hello,', 'wc-topup-fields' ),
         '',
@@ -987,6 +2194,13 @@ function wctf_build_fazercards_giftcard_customer_delivery_email( $order, $produc
  * @return array Safe result only.
  */
 function wctf_process_fazercards_giftcard_customer_delivery( $order, $item, $item_id, $mode = 'auto' ) {
+    return array(
+        'success' => false,
+        'status'  => 'blocked',
+        'message' => __( 'The retired separate Gift Card email path is disabled.', 'wc-topup-fields' ),
+    );
+
+    // Legacy implementation retained below for source compatibility only.
     $mode     = in_array( $mode, array( 'auto', 'send', 'resend' ), true ) ? $mode : 'auto';
     $order_id = $order instanceof WC_Order ? absint( $order->get_id() ) : 0;
     $item_id  = absint( $item_id );
@@ -1093,12 +2307,7 @@ function wctf_process_fazercards_giftcard_customer_delivery( $order, $item, $ite
 
         // A true return value means the mail transport accepted the message; it does not guarantee inbox delivery.
         $mail_attempted = true;
-        $mail_sent      = wp_mail(
-            $email_to,
-            $email_content['subject'],
-            $email_content['body'],
-            array( 'Content-Type: text/plain; charset=UTF-8' )
-        );
+        $mail_sent      = false;
         $mail_accepted  = (bool) $mail_sent;
 
         unset( $email_content, $delivery_data );
@@ -1177,12 +2386,7 @@ function wctf_process_fazercards_giftcard_customer_delivery( $order, $item, $ite
  * @return void
  */
 function wctf_run_fazercards_giftcard_customer_delivery( $order_id, $item_id ) {
-    $order = wc_get_order( absint( $order_id ) );
-    $item  = $order instanceof WC_Order ? $order->get_item( absint( $item_id ) ) : false;
-
-    if ( $order instanceof WC_Order && $item instanceof WC_Order_Item_Product ) {
-        wctf_process_fazercards_giftcard_customer_delivery( $order, $item, absint( $item_id ), 'auto' );
-    }
+    unset( $order_id, $item_id );
 }
 
 /**
@@ -1326,6 +2530,388 @@ function wctf_handle_fazercards_giftcard_customer_delivery_admin_action( $mode )
 }
 
 /**
+ * Handle a confirmed order-level SEND action.
+ *
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_send_completed_order_email() {
+    wctf_handle_fazercards_giftcard_completed_email_admin_action( 'send' );
+}
+
+/**
+ * Handle a confirmed order-level RESEND action.
+ *
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_resend_completed_order_email() {
+    wctf_handle_fazercards_giftcard_completed_email_admin_action( 'resend' );
+}
+
+/**
+ * Validate and run one administrator-confirmed Completed Order email action.
+ *
+ * @param string $mode send or resend.
+ * @return void
+ */
+function wctf_handle_fazercards_giftcard_completed_email_admin_action( $mode ) {
+    $mode     = 'resend' === $mode ? 'resend' : 'send';
+    $order_id = isset( $_POST['order_id'] ) && is_scalar( $_POST['order_id'] )
+        ? absint( wp_unslash( $_POST['order_id'] ) )
+        : 0;
+    $order    = 0 < $order_id ? wc_get_order( $order_id ) : false;
+
+    if ( ! $order instanceof WC_Order ) {
+        wp_die(
+            esc_html__( 'The WooCommerce order could not be loaded.', 'wc-topup-fields' ),
+            esc_html__( 'Invalid order', 'wc-topup-fields' ),
+            array( 'response' => 400 )
+        );
+    }
+
+    if (
+        ! current_user_can( 'manage_woocommerce' )
+        || ( ! current_user_can( 'edit_shop_order', $order_id ) && ! current_user_can( 'edit_post', $order_id ) )
+    ) {
+        wp_die(
+            esc_html__( 'You are not allowed to send the Completed Order email for this order.', 'wc-topup-fields' ),
+            esc_html__( 'Access denied', 'wc-topup-fields' ),
+            array( 'response' => 403 )
+        );
+    }
+
+    $nonce = isset( $_POST['nonce'] ) && is_scalar( $_POST['nonce'] )
+        ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) )
+        : '';
+    $nonce_action = 'wctf_gc_completed_email_' . $mode . '_' . $order_id;
+
+    if ( '' === $nonce || ! wp_verify_nonce( $nonce, $nonce_action ) ) {
+        wctf_finish_fazercards_giftcard_customer_delivery_action(
+            $order,
+            array(
+                'success' => false,
+                'message' => __( 'The Completed Order email request reached the server, but its security nonce was invalid.', 'wc-topup-fields' ),
+            )
+        );
+    }
+
+    $confirmed = isset( $_POST['completed_email_confirmed'] ) && is_scalar( $_POST['completed_email_confirmed'] )
+        ? sanitize_text_field( wp_unslash( $_POST['completed_email_confirmed'] ) )
+        : '';
+    $confirmation_text = isset( $_POST['completed_email_confirmation_text'] ) && is_scalar( $_POST['completed_email_confirmation_text'] )
+        ? (string) wp_unslash( $_POST['completed_email_confirmation_text'] )
+        : '';
+    $expected = 'resend' === $mode ? 'RESEND' : 'SEND';
+
+    if ( '1' !== $confirmed || $expected !== $confirmation_text ) {
+        wctf_finish_fazercards_giftcard_customer_delivery_action(
+            $order,
+            array(
+                'success' => false,
+                'message' => sprintf(
+                    __( 'Both the checkbox and exact %s confirmation are required.', 'wc-topup-fields' ),
+                    $expected
+                ),
+            )
+        );
+    }
+
+    $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+
+    if ( 'ready' !== $readiness['status'] ) {
+        $message = $readiness['reason'];
+        unset( $readiness );
+        wctf_finish_fazercards_giftcard_customer_delivery_action(
+            $order,
+            array(
+                'success' => false,
+                'message' => $message,
+            )
+        );
+    }
+
+    unset( $readiness );
+    $result = wctf_process_fazercards_giftcard_completed_order_email( $order_id, $mode );
+    wctf_finish_fazercards_giftcard_customer_delivery_action( $order, $result );
+}
+
+/**
+ * Render the order-level Completed Order email coordinator status and controls.
+ *
+ * @param WP_Post|WC_Order $post_or_order_object Order screen object.
+ * @return void
+ */
+function wctf_render_fazercards_giftcard_completed_email_admin_meta_box( $post_or_order_object ) {
+    if ( function_exists( 'wctf_get_fazercards_giftcard_order_from_screen' ) ) {
+        $order = wctf_get_fazercards_giftcard_order_from_screen( $post_or_order_object );
+    } elseif ( $post_or_order_object instanceof WC_Order ) {
+        $order = $post_or_order_object;
+    } elseif ( $post_or_order_object instanceof WP_Post ) {
+        $order = wc_get_order( $post_or_order_object->ID );
+    } else {
+        $order = false;
+    }
+
+    if ( ! $order instanceof WC_Order ) {
+        echo '<p>' . esc_html__( 'The WooCommerce order could not be loaded.', 'wc-topup-fields' ) . '</p>';
+        return;
+    }
+
+    $order_id = absint( $order->get_id() );
+
+    if (
+        ! current_user_can( 'manage_woocommerce' )
+        || ( ! current_user_can( 'edit_shop_order', $order_id ) && ! current_user_can( 'edit_post', $order_id ) )
+    ) {
+        echo '<p>' . esc_html__( 'You are not allowed to manage this Completed Order email.', 'wc-topup-fields' ) . '</p>';
+        return;
+    }
+
+    if ( ! wctf_fazercards_giftcard_order_has_delivery_items( $order ) ) {
+        echo '<p>' . esc_html__( 'No Gift Card snapshot items were detected.', 'wc-topup-fields' ) . '</p>';
+        return;
+    }
+
+    $notice_key = wctf_get_fazercards_giftcard_customer_delivery_notice_key( $order_id );
+    $notice     = get_transient( $notice_key );
+
+    if ( is_array( $notice ) && ! empty( $notice['message'] ) ) {
+        $notice_class = ! empty( $notice['success'] ) ? 'notice-success' : 'notice-error';
+        echo '<div class="notice ' . esc_attr( $notice_class ) . ' inline"><p>';
+        echo esc_html( wctf_sanitize_fazercards_giftcard_delivery_error( $notice['message'] ) );
+        echo '</p></div>';
+        delete_transient( $notice_key );
+    }
+
+    $status = wctf_apply_fazercards_giftcard_completed_email_legacy_state( $order, false );
+    $order  = wc_get_order( $order_id );
+    $readiness = wctf_get_fazercards_giftcard_completed_email_readiness( $order );
+    $status_labels = array(
+        'not_started'     => __( 'Not started', 'wc-topup-fields' ),
+        'held'            => __( 'Held', 'wc-topup-fields' ),
+        'scheduled'       => __( 'Scheduled', 'wc-topup-fields' ),
+        'sending'         => __( 'Sending - admin review required if stale', 'wc-topup-fields' ),
+        'sent'            => __( 'Sent', 'wc-topup-fields' ),
+        'failed'          => __( 'Failed', 'wc-topup-fields' ),
+        'blocked'         => __( 'Blocked', 'wc-topup-fields' ),
+        'legacy_delivered' => __( 'Legacy delivered', 'wc-topup-fields' ),
+    );
+    $readiness_labels = array(
+        'ready'   => __( 'Ready', 'wc-topup-fields' ),
+        'held'    => __( 'Held', 'wc-topup-fields' ),
+        'blocked' => __( 'Blocked', 'wc-topup-fields' ),
+    );
+    $recipient = sanitize_email(
+        (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_recipient', true )
+    );
+    $future_action = wctf_get_fazercards_giftcard_completed_email_future_action( $order_id );
+    $future_timestamp = ! empty( $future_action['timestamp'] )
+        ? gmdate( 'Y-m-d H:i:s', absint( $future_action['timestamp'] ) )
+        : '';
+    $backend_labels = array(
+        'action_scheduler' => __( 'Action Scheduler', 'wc-topup-fields' ),
+        'wp_cron'          => __( 'WP-Cron fallback', 'wc-topup-fields' ),
+    );
+    $stored_backend = sanitize_key(
+        (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_scheduler_backend', true )
+    );
+    $display_backend = isset( $backend_labels[ $stored_backend ] )
+        ? $backend_labels[ $stored_backend ]
+        : ( isset( $backend_labels[ $future_action['backend'] ] )
+            ? $backend_labels[ $future_action['backend'] ]
+            : __( 'Not available', 'wc-topup-fields' ) );
+    $rows = array(
+        __( 'Coordinator status', 'wc-topup-fields' ) => $status_labels[ $status ],
+        __( 'Whole-order readiness', 'wc-topup-fields' ) => isset( $readiness_labels[ $readiness['status'] ] )
+            ? $readiness_labels[ $readiness['status'] ]
+            : __( 'Blocked', 'wc-topup-fields' ),
+        __( 'Readiness reason', 'wc-topup-fields' ) => sanitize_text_field( $readiness['reason'] ),
+        __( 'Recipient', 'wc-topup-fields' ) => '' === $recipient
+            ? __( 'Not sent', 'wc-topup-fields' )
+            : $recipient,
+        __( 'Held at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_held_at', true )
+        ),
+        __( 'Scheduled at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_scheduled_at', true )
+        ),
+        __( 'Completed hook observed at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_completed_hook_at', true )
+        ),
+        __( 'Ready hook observed at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_ready_hook_at', true )
+        ),
+        __( 'Last schedule reason', 'wc-topup-fields' ) => wctf_sanitize_fazercards_giftcard_delivery_error(
+            $order->get_meta( '_wctf_fazer_giftcard_completed_email_schedule_reason', true )
+        ),
+        __( 'Queue backend', 'wc-topup-fields' ) => $display_backend,
+        __( 'Future action scheduled', 'wc-topup-fields' ) => ! empty( $future_action['scheduled'] )
+            ? __( 'Yes', 'wc-topup-fields' )
+            : __( 'No', 'wc-topup-fields' ),
+        __( 'Future action timestamp (UTC)', 'wc-topup-fields' ) => $future_timestamp,
+        __( 'Last attempt (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_last_attempt_at', true )
+        ),
+        __( 'First sent at (UTC)', 'wc-topup-fields' ) => sanitize_text_field(
+            (string) $order->get_meta( '_wctf_fazer_giftcard_completed_email_sent_at', true )
+        ),
+        __( 'Attempts', 'wc-topup-fields' ) => (string) absint(
+            $order->get_meta( '_wctf_fazer_giftcard_completed_email_attempts', true )
+        ),
+        __( 'Last safe error', 'wc-topup-fields' ) => wctf_sanitize_fazercards_giftcard_delivery_error(
+            $order->get_meta( '_wctf_fazer_giftcard_completed_email_last_error', true )
+        ),
+        __( 'Legacy delivered', 'wc-topup-fields' ) => 'legacy_delivered' === $status
+            ? __( 'Yes', 'wc-topup-fields' )
+            : __( 'No', 'wc-topup-fields' ),
+    );
+
+    echo '<p>' . esc_html__( 'This coordinator sends the standard WooCommerce Customer Completed Order email only after every Gift Card item is safely deliverable.', 'wc-topup-fields' ) . '</p>';
+    echo '<p>' . esc_html__( 'A successful result means the mail transport accepted the message; it does not guarantee inbox delivery.', 'wc-topup-fields' ) . '</p>';
+    echo '<table class="widefat striped"><tbody>';
+
+    foreach ( $rows as $label => $value ) {
+        $value = '' === $value ? __( 'Not available', 'wc-topup-fields' ) : $value;
+        echo '<tr><th scope="row">' . esc_html( $label ) . '</th><td>' . esc_html( $value ) . '</td></tr>';
+    }
+
+    echo '</tbody></table>';
+
+    if ( 'ready' === $readiness['status'] ) {
+        if ( in_array( $status, array( 'not_started', 'held', 'scheduled', 'failed', 'blocked' ), true ) ) {
+            wctf_render_fazercards_giftcard_completed_email_admin_control( $order_id, 'send' );
+        } elseif ( in_array( $status, array( 'sent', 'legacy_delivered' ), true ) ) {
+            wctf_render_fazercards_giftcard_completed_email_admin_control( $order_id, 'resend' );
+        }
+    }
+
+    unset( $readiness, $rows, $future_action );
+    wctf_render_fazercards_giftcard_completed_email_admin_script();
+}
+
+/**
+ * Render an order-level standalone SEND or RESEND control.
+ *
+ * @param int    $order_id WooCommerce order ID.
+ * @param string $mode     send or resend.
+ * @return void
+ */
+function wctf_render_fazercards_giftcard_completed_email_admin_control( $order_id, $mode ) {
+    $mode         = 'resend' === $mode ? 'resend' : 'send';
+    $expected     = 'resend' === $mode ? 'RESEND' : 'SEND';
+    $confirmed_id = 'wctf-gc-completed-email-confirmed-' . $mode . '-' . absint( $order_id );
+    $text_id      = 'wctf-gc-completed-email-text-' . $mode . '-' . absint( $order_id );
+    $action       = 'wctf_fazercards_giftcard_' . $mode . '_completed_order_email';
+    $nonce        = wp_create_nonce(
+        'wctf_gc_completed_email_' . $mode . '_' . absint( $order_id )
+    );
+
+    echo '<div class="wctf-giftcard-completed-email-control">';
+    echo '<p><strong>';
+    echo esc_html(
+        'resend' === $mode
+            ? __( 'This will resend the standard WooCommerce Completed Order email with all validated Gift Card codes.', 'wc-topup-fields' )
+            : __( 'This will send the standard WooCommerce Completed Order email with all validated Gift Card codes.', 'wc-topup-fields' )
+    );
+    echo '</strong></p>';
+    echo '<p><label for="' . esc_attr( $confirmed_id ) . '"><input type="checkbox" id="' . esc_attr( $confirmed_id ) . '"> ';
+    echo esc_html( sprintf( __( 'I understand this will %s the customer Completed Order email.', 'wc-topup-fields' ), strtolower( $expected ) ) );
+    echo '</label></p>';
+    echo '<p><label for="' . esc_attr( $text_id ) . '">' . esc_html( sprintf( __( 'Type %s to confirm:', 'wc-topup-fields' ), $expected ) ) . '</label> ';
+    echo '<input type="text" id="' . esc_attr( $text_id ) . '" autocomplete="off"></p>';
+    echo '<p><button type="button" class="button button-primary wctf-giftcard-completed-email-action"';
+    echo ' data-action-url="' . esc_url( admin_url( 'admin-post.php' ) ) . '"';
+    echo ' data-action="' . esc_attr( $action ) . '"';
+    echo ' data-order-id="' . esc_attr( absint( $order_id ) ) . '"';
+    echo ' data-nonce="' . esc_attr( $nonce ) . '"';
+    echo ' data-confirmed-id="' . esc_attr( $confirmed_id ) . '"';
+    echo ' data-text-id="' . esc_attr( $text_id ) . '"';
+    echo ' data-expected="' . esc_attr( $expected ) . '">';
+    echo esc_html(
+        'resend' === $mode
+            ? __( 'Resend WooCommerce Completed Order Email', 'wc-topup-fields' )
+            : __( 'Send WooCommerce Completed Order Email', 'wc-topup-fields' )
+    );
+    echo '</button></p>';
+    echo '</div>';
+}
+
+/**
+ * Render the order-level standalone-form controller.
+ *
+ * @return void
+ */
+function wctf_render_fazercards_giftcard_completed_email_admin_script() {
+    ?>
+    <script>
+    ( function() {
+        if ( window.wctfFazerCardsGiftCardCompletedEmailBound ) {
+            return;
+        }
+
+        window.wctfFazerCardsGiftCardCompletedEmailBound = true;
+
+        function addField( form, name, value ) {
+            var field = document.createElement( 'input' );
+            field.type = 'hidden';
+            field.name = name;
+            field.value = value;
+            form.appendChild( field );
+        }
+
+        document.addEventListener( 'click', function( event ) {
+            var button = event.target.closest
+                ? event.target.closest( '.wctf-giftcard-completed-email-action' )
+                : null;
+
+            if ( ! button ) {
+                return;
+            }
+
+            event.preventDefault();
+
+            var confirmed = document.getElementById( button.getAttribute( 'data-confirmed-id' ) );
+            var text = document.getElementById( button.getAttribute( 'data-text-id' ) );
+            var expected = button.getAttribute( 'data-expected' ) || '';
+
+            if ( ! confirmed || ! confirmed.checked ) {
+                if ( confirmed && confirmed.reportValidity ) {
+                    confirmed.required = true;
+                    confirmed.reportValidity();
+                }
+                return;
+            }
+
+            if ( ! text || expected !== text.value ) {
+                if ( text && text.setCustomValidity && text.reportValidity ) {
+                    text.setCustomValidity( '<?php echo esc_js( __( 'The confirmation text must match exactly.', 'wc-topup-fields' ) ); ?>' );
+                    text.reportValidity();
+                    text.addEventListener( 'input', function clearCompletedEmailError() {
+                        text.setCustomValidity( '' );
+                        text.removeEventListener( 'input', clearCompletedEmailError );
+                    } );
+                }
+                return;
+            }
+
+            var form = document.createElement( 'form' );
+            form.method = 'post';
+            form.action = button.getAttribute( 'data-action-url' );
+
+            addField( form, 'action', button.getAttribute( 'data-action' ) || '' );
+            addField( form, 'order_id', button.getAttribute( 'data-order-id' ) || '' );
+            addField( form, 'nonce', button.getAttribute( 'data-nonce' ) || '' );
+            addField( form, 'completed_email_confirmed', '1' );
+            addField( form, 'completed_email_confirmation_text', text.value );
+
+            document.body.appendChild( form );
+            form.submit();
+        } );
+    }() );
+    </script>
+    <?php
+}
+
+/**
  * Render the admin-only customer delivery status and SEND/RESEND controls.
  *
  * @param WP_Post|WC_Order $post_or_order_object Order screen object.
@@ -1368,7 +2954,7 @@ function wctf_render_fazercards_giftcard_customer_delivery_admin_meta_box( $post
         delete_transient( $notice_key );
     }
 
-    echo '<p>' . esc_html__( 'Email delivery is independent from the customer order-page display. A successful wp_mail() result means the mail transport accepted the message, not that it reached the inbox.', 'wc-topup-fields' ) . '</p>';
+    echo '<p>' . esc_html__( 'Email delivery is independent from the customer order-page display. Mail transport acceptance does not guarantee inbox delivery.', 'wc-topup-fields' ) . '</p>';
 
     $found = false;
 
