@@ -3834,8 +3834,10 @@ function wctf_enqueue_fazercards_giftcard_customer_delivery_script( $order, $ord
             'orderKey'     => $key_required ? (string) $order_key : '',
             'containerId'  => 'wctf-giftcard-delivery-' . $order_id,
             'initialStatus' => sanitize_key( $initial_status ),
-            'pollInterval' => 5000,
-            'maxPollTime'  => 120000,
+            'earlyPollInterval' => 2000,
+            'earlyPollTime' => 45000,
+            'pollInterval'  => 5000,
+            'maxPollTime'   => 120000,
             'labels'       => array(
                 'heading'   => __( 'Your Gift Cards', 'wc-topup-fields' ),
                 'preparing' => __( 'Your gift card is being prepared. Please refresh this page shortly.', 'wc-topup-fields' ),
@@ -3881,16 +3883,19 @@ function wctf_handle_fazercards_giftcard_customer_delivery_status() {
         wp_send_json_error( array( 'status' => 'blocked' ), 404 );
     }
 
-    if ( function_exists( 'wctf_maybe_run_fazercards_giftcard_customer_assisted_refresh_once' ) ) {
+    if ( function_exists( 'wctf_maybe_run_fazercards_giftcard_customer_early_retrieval' ) ) {
+        $customer_early_authorized_at = time();
+
         foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
             if ( ! $item instanceof WC_Order_Item_Product ) {
                 continue;
             }
 
-            wctf_maybe_run_fazercards_giftcard_customer_assisted_refresh_once(
+            wctf_maybe_run_fazercards_giftcard_customer_early_retrieval(
                 $order,
                 $item,
-                absint( $item_id )
+                absint( $item_id ),
+                $customer_early_authorized_at
             );
         }
 
@@ -3900,7 +3905,7 @@ function wctf_handle_fazercards_giftcard_customer_delivery_status() {
             $order = $refreshed_order;
         }
 
-        unset( $refreshed_order );
+        unset( $refreshed_order, $customer_early_authorized_at );
     }
 
     $state = wctf_get_fazercards_giftcard_customer_order_state( $order );

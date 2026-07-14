@@ -96,6 +96,8 @@
         var startedAt = Date.now();
         var stopped = 'preparing' !== text( config.initialStatus );
         var interval = Math.max( 5000, Number( config.pollInterval ) || 5000 );
+        var earlyInterval = Math.min( interval, Math.max( 1000, Number( config.earlyPollInterval ) || 2000 ) );
+        var earlyTime = Math.min( 45000, Math.max( 12000, Number( config.earlyPollTime ) || 45000 ) );
         var maxTime = Math.min( 120000, Math.max( interval, Number( config.maxPollTime ) || 120000 ) );
         var timer = null;
 
@@ -123,12 +125,15 @@
         }
 
         function schedule() {
-            if ( stopped || Date.now() - startedAt >= maxTime ) {
+            var elapsed = Date.now() - startedAt;
+            var nextInterval = elapsed < earlyTime ? earlyInterval : interval;
+
+            if ( stopped || elapsed >= maxTime ) {
                 stop();
                 return;
             }
 
-            timer = window.setTimeout( poll, interval );
+            timer = window.setTimeout( poll, nextInterval );
         }
 
         function poll() {
@@ -176,7 +181,7 @@
         }
 
         if ( ! stopped ) {
-            schedule();
+            poll();
         }
     }
 
