@@ -42,6 +42,7 @@ $includes = [
     'includes/giftcard-order.php',
     'includes/giftcard-reveal.php',
     'includes/giftcard-delivery.php',
+    'includes/thankyou-page.php',
 
 ];
 

@@ -1,0 +1,1177 @@
+.wctf-modern-thankyou-page {
+    --wctf-thankyou-success: #2ecc71;
+    --wctf-thankyou-success-dark: #177a43;
+    --wctf-thankyou-text: #172033;
+    --wctf-thankyou-muted: #667085;
+    --wctf-thankyou-border: #e7eaf0;
+    --wctf-thankyou-surface: #ffffff;
+    --wctf-thankyou-soft: #f7f9fc;
+    --wctf-thankyou-warning: #9a6700;
+    --wctf-thankyou-warning-soft: #fff8e6;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 980px;
+    margin-inline: auto;
+    color: var(--wctf-thankyou-text);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero,
+.wctf-modern-thankyou-page .wctf-giftcard-delivery,
+.wctf-modern-thankyou-page .woocommerce-order-details,
+.wctf-modern-thankyou-page .wctf-thankyou-actions {
+    box-sizing: border-box;
+    margin-block: 24px;
+    border: 1px solid var(--wctf-thankyou-border);
+    border-radius: 18px;
+    background: var(--wctf-thankyou-surface);
+    box-shadow: 0 10px 30px rgba(23, 32, 51, 0.06);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 30px 32px;
+    border-color: rgba(46, 204, 113, 0.32);
+    background: linear-gradient(135deg, #f3fff8 0%, var(--wctf-thankyou-surface) 70%);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__icon {
+    display: inline-flex;
+    flex: 0 0 58px;
+    align-items: center;
+    justify-content: center;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    color: #ffffff;
+    background: var(--wctf-thankyou-success);
+    box-shadow: 0 8px 20px rgba(46, 204, 113, 0.24);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__icon svg {
+    width: 30px;
+    height: 30px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__content {
+    min-width: 0;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__title,
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-heading,
+.wctf-modern-thankyou-page .woocommerce-order-details__title {
+    margin: 0;
+    color: var(--wctf-thankyou-text);
+    font-size: clamp(1.35rem, 3vw, 1.75rem);
+    line-height: 1.3;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__subtitle {
+    margin: 8px 0 0;
+    color: var(--wctf-thankyou-muted);
+    font-size: 1rem;
+    line-height: 1.75;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-received-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    width: 100%;
+    margin: 24px 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--wctf-thankyou-border);
+    border-radius: 18px;
+    background: var(--wctf-thankyou-surface);
+    box-shadow: 0 10px 30px rgba(23, 32, 51, 0.05);
+    list-style: none;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li {
+    display: flex;
+    min-width: 0;
+    min-height: 88px;
+    margin: 0;
+    padding: 20px;
+    flex-direction: column;
+    justify-content: center;
+    border: 0;
+    border-inline-end: 1px solid var(--wctf-thankyou-border);
+    color: var(--wctf-thankyou-muted);
+    font-size: 0.76rem;
+    line-height: 1.45;
+    text-transform: none;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:last-child {
+    border-inline-end: 0;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li strong {
+    display: block;
+    min-width: 0;
+    margin-top: 7px;
+    color: var(--wctf-thankyou-text);
+    font-size: 0.98rem;
+    font-weight: 650;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery {
+    padding: 28px 30px;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-heading {
+    margin-bottom: 20px;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-item {
+    padding: 22px;
+    border: 1px solid var(--wctf-thankyou-border);
+    border-radius: 14px;
+    background: var(--wctf-thankyou-soft);
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-item + .wctf-giftcard-delivery-item {
+    margin-top: 16px;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-item.is-ready {
+    border-color: rgba(46, 204, 113, 0.32);
+    background: #f5fff9;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-item.is-blocked {
+    border-color: #f1d696;
+    background: var(--wctf-thankyou-warning-soft);
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-product {
+    margin: 0 0 16px;
+    color: var(--wctf-thankyou-text);
+    font-size: 1.08rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-entry {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    align-items: center;
+    padding: 16px;
+    border: 1px solid var(--wctf-thankyou-border);
+    border-radius: 12px;
+    background: var(--wctf-thankyou-surface);
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-entry + .wctf-giftcard-delivery-entry {
+    margin-top: 12px;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-label {
+    grid-column: 1 / -1;
+    color: var(--wctf-thankyou-muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-value {
+    min-width: 0;
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px dashed #cbd2dc;
+    border-radius: 9px;
+    color: var(--wctf-thankyou-text);
+    background: var(--wctf-thankyou-soft);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 1rem;
+    line-height: 1.6;
+    text-align: center;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery .wctf-giftcard-delivery-copy {
+    display: inline-flex;
+    min-height: 44px;
+    margin: 0;
+    padding: 10px 18px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--wctf-thankyou-success-dark);
+    border-radius: 9px;
+    color: #ffffff;
+    background: var(--wctf-thankyou-success-dark);
+    font: inherit;
+    font-weight: 650;
+    line-height: 1.2;
+    cursor: pointer;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-safe {
+    margin: 14px 0 0;
+    color: var(--wctf-thankyou-muted);
+    font-size: 0.88rem;
+    line-height: 1.65;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-spinner {
+    display: block;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    margin-top: 2px;
+    border: 3px solid #d9e1ec;
+    border-top-color: var(--wctf-thankyou-success-dark);
+    border-radius: 50%;
+    animation: wctf-thankyou-spin 0.9s linear infinite;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-status__content {
+    min-width: 0;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-status__title {
+    margin: 0 0 7px;
+    color: var(--wctf-thankyou-text);
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.wctf-modern-thankyou-page .is-blocked .wctf-giftcard-delivery-status__title {
+    color: var(--wctf-thankyou-warning);
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-message,
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-note {
+    margin: 0;
+    color: var(--wctf-thankyou-muted);
+    line-height: 1.7;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery-note {
+    margin-top: 8px;
+    font-size: 0.86rem;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details {
+    padding: 28px 30px;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details__title {
+    margin-bottom: 20px;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-collapse: collapse;
+    table-layout: fixed;
+    background: transparent;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details th,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details td {
+    box-sizing: border-box;
+    padding: 14px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--wctf-thankyou-border);
+    color: var(--wctf-thankyou-text);
+    line-height: 1.6;
+    text-align: start;
+    vertical-align: top;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details thead th {
+    color: var(--wctf-thankyou-muted);
+    background: var(--wctf-thankyou-soft);
+    font-size: 0.82rem;
+    font-weight: 650;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .product-name {
+    width: 72%;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .product-total {
+    width: 28%;
+    text-align: end;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot th,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot td {
+    background: #fbfcfe;
+    font-weight: 600;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot tr:first-child th,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot tr:first-child td {
+    border-top: 2px solid var(--wctf-thankyou-border);
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot tr:last-child th,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot tr:last-child td {
+    border-bottom: 0;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .wc-item-meta,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .wc-item-meta p {
+    margin-block: 5px 0;
+    color: var(--wctf-thankyou-muted);
+    font-size: 0.86rem;
+    line-height: 1.55;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-actions {
+    padding: 26px 30px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-actions__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-button {
+    display: inline-flex;
+    min-height: 44px;
+    box-sizing: border-box;
+    padding: 11px 22px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    font-size: 0.96rem;
+    font-weight: 650;
+    line-height: 1.35;
+    text-align: center;
+    text-decoration: none;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-button--primary {
+    border-color: var(--wctf-thankyou-success-dark);
+    color: #ffffff;
+    background: var(--wctf-thankyou-success-dark);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-button--secondary {
+    border-color: #cbd2dc;
+    color: var(--wctf-thankyou-text);
+    background: var(--wctf-thankyou-surface);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-help {
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid var(--wctf-thankyou-border);
+    color: var(--wctf-thankyou-muted);
+    font-size: 0.84rem;
+    line-height: 1.65;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-help p {
+    margin: 4px 0;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery .wctf-giftcard-delivery-copy:hover,
+.wctf-modern-thankyou-page .wctf-thankyou-button--primary:hover {
+    border-color: #116536;
+    color: #ffffff;
+    background: #116536;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-button--secondary:hover {
+    border-color: var(--wctf-thankyou-success-dark);
+    color: var(--wctf-thankyou-success-dark);
+    background: #f5fff9;
+}
+
+.wctf-modern-thankyou-page .wctf-giftcard-delivery .wctf-giftcard-delivery-copy:focus-visible,
+.wctf-modern-thankyou-page .wctf-thankyou-button:focus-visible {
+    outline: 3px solid rgba(23, 122, 67, 0.3);
+    outline-offset: 3px;
+}
+
+@keyframes wctf-thankyou-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 760px) {
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li,
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:last-child {
+        border-inline-end: 1px solid var(--wctf-thankyou-border);
+        border-bottom: 1px solid var(--wctf-thankyou-border);
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:nth-child(2n) {
+        border-inline-end: 0;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:nth-last-child(-n + 2):nth-child(odd),
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:last-child {
+        border-bottom: 0;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:last-child:nth-child(odd) {
+        border-inline-end: 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .wctf-modern-thankyou-page .wctf-thankyou-hero,
+    .wctf-modern-thankyou-page .wctf-giftcard-delivery,
+    .wctf-modern-thankyou-page .woocommerce-order-details,
+    .wctf-modern-thankyou-page .wctf-thankyou-actions {
+        margin-block: 18px;
+        padding: 22px 18px;
+        border-radius: 14px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero {
+        align-items: flex-start;
+        gap: 14px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__icon {
+        flex-basis: 46px;
+        width: 46px;
+        height: 46px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__icon svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview {
+        grid-template-columns: minmax(0, 1fr);
+        border-radius: 14px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li,
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:nth-child(2n),
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:nth-last-child(-n + 2) {
+        min-height: 0;
+        border-inline-end: 0;
+        border-bottom: 1px solid var(--wctf-thankyou-border);
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:last-child {
+        border-bottom: 0;
+    }
+
+    .wctf-modern-thankyou-page .wctf-giftcard-delivery-item {
+        padding: 17px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-giftcard-delivery-entry {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 13px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-giftcard-delivery .wctf-giftcard-delivery-copy {
+        width: 100%;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-table--order-details th,
+    .wctf-modern-thankyou-page .woocommerce-table--order-details td {
+        padding: 12px 7px;
+        font-size: 0.88rem;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-table--order-details .product-name {
+        width: 66%;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-table--order-details .product-total {
+        width: 34%;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-actions__buttons,
+    .wctf-modern-thankyou-page .wctf-thankyou-button {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wctf-modern-thankyou-page .wctf-giftcard-delivery-spinner {
+        animation: none;
+        border-top-color: #d9e1ec;
+        background: radial-gradient(circle, var(--wctf-thankyou-success-dark) 0 35%, transparent 38%);
+    }
+}
+
+/* Final Order Received presentation matched to the Release 3 reference. */
+.wctf-modern-thankyou-page {
+    --wctf-thankyou-success: #25c66f;
+    --wctf-thankyou-success-dark: #12a956;
+    --wctf-thankyou-text: #101828;
+    --wctf-thankyou-muted: #667085;
+    --wctf-thankyou-border: #e8edf3;
+    --wctf-thankyou-surface: #ffffff;
+    --wctf-thankyou-soft: #f6f8fb;
+    background: #f7f8fb;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order {
+    width: min(100%, 940px);
+    max-width: 940px;
+    margin-inline: auto;
+    padding-block: 36px 96px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero,
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview,
+.wctf-modern-thankyou-page .woocommerce-order-details {
+    border: 1px solid rgba(225, 231, 239, 0.9);
+    border-radius: 20px;
+    background: var(--wctf-thankyou-surface);
+    box-shadow: 0 18px 48px rgba(36, 47, 68, 0.07);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero {
+    position: relative;
+    isolation: isolate;
+    min-height: 236px;
+    margin: 0;
+    padding: 42px 58px;
+    justify-content: center;
+    gap: 62px;
+    overflow: hidden;
+    border-color: rgba(213, 244, 226, 0.95);
+    background:
+        radial-gradient(circle at 25% 50%, rgba(195, 248, 219, 0.34), transparent 28%),
+        linear-gradient(110deg, #f7fffa 0%, #ffffff 52%, #f5fff9 100%);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__icon {
+    position: relative;
+    z-index: 2;
+    flex: 0 0 96px;
+    width: 96px;
+    height: 96px;
+    background: linear-gradient(145deg, #31d77d, #1ebd66);
+    box-shadow:
+        0 12px 28px rgba(37, 198, 111, 0.25),
+        0 0 0 18px rgba(53, 210, 127, 0.09),
+        0 0 0 36px rgba(53, 210, 127, 0.055);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__icon svg {
+    width: 48px;
+    height: 48px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__content {
+    position: relative;
+    z-index: 2;
+    max-width: 570px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__title {
+    margin: 0;
+    color: #0d172b;
+    font-size: clamp(1.9rem, 4vw, 2.25rem);
+    font-weight: 750;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__subtitle {
+    margin-top: 16px;
+    color: #6d788a;
+    font-size: 1.05rem;
+    line-height: 1.7;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__decoration {
+    position: absolute;
+    z-index: 1;
+    display: block;
+    width: 13px;
+    height: 13px;
+    background: #83dfae;
+    transform: rotate(35deg);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__decoration--one {
+    top: 48px;
+    left: 70px;
+    border-radius: 2px 7px 2px 7px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__decoration--two {
+    top: 103px;
+    left: 38px;
+    width: 12px;
+    height: 12px;
+    background: #ffc83d;
+    clip-path: polygon(50% 0, 66% 34%, 100% 50%, 66% 66%, 50% 100%, 34% 66%, 0 50%, 34% 34%);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__decoration--three {
+    right: 58px;
+    top: 74px;
+    border-radius: 2px 7px 2px 7px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-hero__decoration--four {
+    right: 100px;
+    bottom: 41px;
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+    background: #ffc83d;
+    transform: rotate(14deg);
+}
+
+.wctf-modern-thankyou-page .woocommerce-thankyou-order-received,
+.wctf-modern-thankyou-page .wctf-thankyou-received-text {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: -1px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin: 28px 0 0;
+    padding: 34px 22px;
+    overflow: visible;
+    list-style: none;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li {
+    min-height: 116px;
+    padding: 0 22px;
+    align-items: center;
+    justify-content: flex-start;
+    border-inline-end: 1px solid #e2e7ee;
+    color: #667085;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    text-align: center;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li::before {
+    display: block;
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 12px;
+    border-radius: 11px;
+    background-color: #eaf9f0;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 21px 21px;
+    content: "";
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__order::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312a956' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='3' width='14' height='18' rx='2'/%3E%3Cpath d='M9 8h6M9 12h6M9 16h4'/%3E%3C/svg%3E");
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__date::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312a956' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='15' rx='2'/%3E%3Cpath d='M7.5 3v4M16.5 3v4M3.5 9.5h17'/%3E%3C/svg%3E");
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__total::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312a956' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 7.5h14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11'/%3E%3Cpath d='M15 11h6v5h-6a2.5 2.5 0 0 1 0-5Z'/%3E%3C/svg%3E");
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__payment-method::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312a956' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 9h18M7 15h3'/%3E%3C/svg%3E");
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:last-child,
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__payment-method {
+    border-inline-end: 0;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__email {
+    display: none !important;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li strong {
+    margin-top: 8px;
+    color: #0d172b;
+    font-size: 1.05rem;
+    font-weight: 750;
+    line-height: 1.4;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details {
+    margin: 28px 0 0;
+    padding: 30px 28px 24px;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details__title {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 0 0 20px;
+    color: #0d172b;
+    font-size: 1.45rem;
+    font-weight: 750;
+    line-height: 1.4;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details__title::before {
+    display: inline-block;
+    flex: 0 0 42px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background-color: #eaf9f0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2312a956' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='3' width='14' height='18' rx='2'/%3E%3Cpath d='M9 8h6M9 12h6M9 16h4'/%3E%3C/svg%3E");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 21px;
+    content: "";
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details {
+    width: 100%;
+    margin: 0;
+    overflow: hidden;
+    border: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: 8px;
+    table-layout: fixed;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details th,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details td {
+    padding: 16px 18px;
+    border: 0;
+    border-bottom: 1px solid #e6ebf1;
+    color: #172033;
+    font-size: 0.94rem;
+    line-height: 1.65;
+    text-align: start;
+    vertical-align: top;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details thead th {
+    color: #344054;
+    background: #f3f6f9;
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details thead th:first-child {
+    border-start-start-radius: 8px;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details thead th:last-child {
+    border-start-end-radius: 8px;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .product-name {
+    width: 75%;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .product-total {
+    width: 25%;
+    color: #11a856;
+    font-weight: 700;
+    text-align: end;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details thead .product-total {
+    color: #344054;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .product-name a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .wctf-thankyou-giftcard-cell {
+    padding: 12px 0 10px;
+    border-bottom: 1px solid #e6ebf1;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .wctf-giftcard-delivery--thankyou {
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-code-row {
+    display: flex;
+    min-height: 50px;
+    box-sizing: border-box;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 5px 4px 15px;
+    border: 1px solid #d6e0ea;
+    border-radius: 8px;
+    color: #536a82;
+    background: #eef3f8;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-code-row + .wctf-thankyou-code-row {
+    margin-top: 6px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-code-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    color: #536a82;
+    background: transparent;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.88rem;
+    font-weight: 650;
+    line-height: 1.6;
+    user-select: text;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-code-copy {
+    display: inline-flex;
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 7px;
+    color: #5e6875;
+    background: transparent;
+    box-shadow: none;
+    cursor: pointer;
+    appearance: none;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-code-copy svg {
+    width: 22px;
+    height: 22px;
+    pointer-events: none;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-code-copy:hover {
+    color: #344054;
+    background: rgba(255, 255, 255, 0.65);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-code-copy.is-copied {
+    color: var(--wctf-thankyou-success-dark);
+    background: rgba(37, 198, 111, 0.1);
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-code-copy:focus-visible {
+    outline: 3px solid rgba(18, 169, 86, 0.28);
+    outline-offset: 1px;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-delivery-status {
+    display: flex;
+    min-height: 50px;
+    box-sizing: border-box;
+    align-items: center;
+    gap: 11px;
+    padding: 12px 15px;
+    border: 1px solid #d6e0ea;
+    border-radius: 8px;
+    color: #58687a;
+    background: #eef3f8;
+    line-height: 1.6;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-delivery-status.is-blocked {
+    border-color: #eedba8;
+    color: #7a6220;
+    background: #fff9e9;
+}
+
+.wctf-modern-thankyou-page .wctf-thankyou-delivery-spinner {
+    display: block;
+    flex: 0 0 20px;
+    width: 20px;
+    height: 20px;
+    box-sizing: border-box;
+    border: 2px solid #ced8e3;
+    border-top-color: var(--wctf-thankyou-success-dark);
+    border-radius: 50%;
+    animation: wctf-thankyou-spin 0.9s linear infinite;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot th,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot td {
+    padding: 18px;
+    border: 0;
+    border-bottom: 1px dashed #e1e6ec;
+    color: #172033;
+    background: transparent;
+    font-size: 0.94rem;
+    font-weight: 600;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot th {
+    width: 45%;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot td {
+    width: 55%;
+    text-align: end;
+    overflow-wrap: anywhere;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot tr:first-child th,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot tr:first-child td {
+    border-top: 0;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot tr:last-child th,
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot tr:last-child td {
+    border-bottom: 0;
+}
+
+.wctf-modern-thankyou-page .woocommerce-customer-details,
+.wctf-modern-thankyou-page .woocommerce-columns--addresses,
+.wctf-modern-thankyou-page .order-again,
+.wctf-modern-thankyou-page .wctf-thankyou-actions {
+    display: none !important;
+}
+
+@media (max-width: 767px) {
+    .wctf-modern-thankyou-page .woocommerce-order {
+        position: static;
+        left: auto;
+        right: auto;
+        transform: none;
+        box-sizing: border-box;
+        width: calc(100% - 10px);
+        max-width: calc(100% - 10px);
+        margin-left: auto;
+        margin-right: auto;
+        padding: 20px 0 60px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero,
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview,
+    .wctf-modern-thankyou-page .woocommerce-order-details {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 100%;
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero {
+        min-height: 0;
+        padding: 38px 22px 34px;
+        flex-direction: column;
+        align-items: center;
+        gap: 34px;
+        text-align: center;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__icon {
+        flex-basis: 76px;
+        width: 76px;
+        height: 76px;
+        box-shadow:
+            0 10px 24px rgba(37, 198, 111, 0.22),
+            0 0 0 14px rgba(53, 210, 127, 0.09),
+            0 0 0 28px rgba(53, 210, 127, 0.05);
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__icon svg {
+        width: 38px;
+        height: 38px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__title {
+        font-size: clamp(1.55rem, 7.5vw, 1.9rem);
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__subtitle {
+        margin-top: 10px;
+        font-size: 0.94rem;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__decoration--one {
+        top: 34px;
+        left: 38px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__decoration--two {
+        top: 92px;
+        left: 22px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__decoration--three {
+        top: 46px;
+        right: 32px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-hero__decoration--four {
+        right: 52px;
+        bottom: 38px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-flow: row;
+        margin-top: 20px;
+        padding: 18px 12px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li,
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li:last-child {
+        min-height: 122px;
+        padding: 14px 8px;
+        border-inline-end: 1px solid #e2e7ee;
+        border-bottom: 1px solid #e2e7ee;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__date,
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__payment-method {
+        border-inline-end: 0;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__total,
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview__payment-method {
+        border-bottom: 0;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li::before {
+        width: 36px;
+        height: 36px;
+        margin-bottom: 9px;
+        background-size: 19px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order .woocommerce-order-overview li strong {
+        margin-top: 5px;
+        font-size: 0.96rem;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details {
+        margin-top: 20px;
+        padding: 22px 16px 16px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details__title {
+        gap: 11px;
+        margin-bottom: 16px;
+        font-size: 1.25rem;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details__title::before {
+        flex-basis: 38px;
+        width: 38px;
+        height: 38px;
+        background-size: 19px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details th,
+    .wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details td {
+        padding: 13px 10px;
+        font-size: 0.86rem;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .product-name {
+        width: 70%;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .product-total {
+        width: 30%;
+        text-align: end;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details .wctf-thankyou-giftcard-cell {
+        padding: 10px 0 8px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details .wctf-giftcard-delivery--thankyou {
+        margin: 0;
+        padding: 0;
+        border-radius: 0;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-code-row {
+        gap: 7px;
+        padding-left: 11px;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-code-value {
+        font-size: 0.8rem;
+    }
+
+    .wctf-modern-thankyou-page .wctf-thankyou-code-copy {
+        flex-basis: 44px;
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+    }
+
+    .wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot th,
+    .wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details tfoot td {
+        padding: 15px 10px;
+        font-size: 0.86rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wctf-modern-thankyou-page .wctf-thankyou-delivery-spinner {
+        animation: none;
+        border-top-color: #ced8e3;
+        background: radial-gradient(circle, var(--wctf-thankyou-success-dark) 0 34%, transparent 37%);
+    }
+}
