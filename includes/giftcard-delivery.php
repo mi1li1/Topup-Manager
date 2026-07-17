@@ -434,6 +434,9 @@ function wctf_get_fazercards_giftcard_customer_delivery_data( $order, $item, $it
 /**
  * Build the current customer-safe display state for all Gift Card line items.
  *
+ * No code entries are returned until every applicable item passes the same
+ * authenticated, quantity-complete delivery validation.
+ *
  * @param WC_Order $order WooCommerce order.
  * @return array
  */
@@ -450,7 +453,10 @@ function wctf_get_fazercards_giftcard_customer_order_state( $order ) {
     $has_preparing = false;
     $has_blocked   = false;
     $order_is_paid = wctf_is_fazercards_giftcard_customer_order_paid( $order );
+    $item_contexts = array();
+    $item_states   = array();
 
+    // Resolve cheap whole-order blockers before decrypting any item payload.
     foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
         if ( ! wctf_is_fazercards_giftcard_customer_order_item( $item ) ) {
             continue;
@@ -466,42 +472,78 @@ function wctf_get_fazercards_giftcard_customer_order_state( $order ) {
         $fulfillment_status = sanitize_key(
             (string) $item->get_meta( '_wctf_fazer_giftcard_fulfillment_status', true )
         );
+        $configuration_failure = sanitize_key(
+            (string) $item->get_meta( '_wctf_fazer_giftcard_configuration_failure', true )
+        );
 
         if ( ! $order_is_paid ) {
             $item_state['status'] = 'blocked';
             $has_blocked          = true;
-            $result['items'][]    = $item_state;
-            continue;
+        } elseif ( '' !== $configuration_failure ) {
+            $item_state['status'] = 'blocked';
+            $has_blocked          = true;
+        } elseif ( 'ready_to_deliver' !== $fulfillment_status ) {
+            $has_preparing = true;
+        } else {
+            $item_contexts[] = array(
+                'item_id' => absint( $item_id ),
+                'item'    => $item,
+                'state'   => $item_state,
+            );
         }
 
-        if ( 'ready_to_deliver' !== $fulfillment_status ) {
-            $has_preparing    = true;
-            $result['items'][] = $item_state;
-            continue;
-        }
+        $item_states[] = $item_state;
+    }
 
-        $delivery_data = wctf_get_fazercards_giftcard_customer_delivery_data( $order, $item, $item_id );
+    if ( empty( $item_states ) ) {
+        return $result;
+    }
+
+    if ( $has_preparing || $has_blocked ) {
+        $result['status'] = $has_preparing ? 'preparing' : 'blocked';
+        $single_item      = 1 === count( $item_states );
+        $result['items'][] = array(
+            'item_id'      => $single_item ? absint( $item_states[0]['item_id'] ) : 0,
+            'product_name' => $single_item
+                ? sanitize_text_field( $item_states[0]['product_name'] )
+                : __( 'Gift Card order', 'wc-topup-fields' ),
+            'status'       => $result['status'],
+            'mode'         => '',
+            'entries'      => array(),
+        );
+
+        unset( $item_contexts, $item_states );
+        return $result;
+    }
+
+    // Buffer validated entries in memory and publish them only if all items pass.
+    $ready_items = array();
+
+    foreach ( $item_contexts as $item_context ) {
+        $delivery_data = wctf_get_fazercards_giftcard_customer_delivery_data(
+            $order,
+            $item_context['item'],
+            $item_context['item_id']
+        );
 
         if ( is_wp_error( $delivery_data ) ) {
             if ( 'wctf_giftcard_customer_count_incomplete' === $delivery_data->get_error_code() ) {
-                $item_state['status'] = 'preparing';
-                $has_preparing        = true;
+                $has_preparing = true;
             } else {
-                $item_state['status'] = 'blocked';
-                $has_blocked          = true;
+                $has_blocked = true;
             }
-        } else {
-            $item_state['status']  = 'ready';
-            $item_state['mode']    = $delivery_data['mode'];
-            $item_state['entries'] = $delivery_data['entries'];
+
+            unset( $delivery_data );
+            continue;
         }
 
-        $result['items'][] = $item_state;
-        unset( $delivery_data );
-    }
+        $ready_state            = $item_context['state'];
+        $ready_state['status']  = 'ready';
+        $ready_state['mode']    = $delivery_data['mode'];
+        $ready_state['entries'] = $delivery_data['entries'];
+        $ready_items[]          = $ready_state;
 
-    if ( empty( $result['items'] ) ) {
-        return $result;
+        unset( $delivery_data, $ready_state );
     }
 
     if ( $has_preparing ) {
@@ -510,8 +552,23 @@ function wctf_get_fazercards_giftcard_customer_order_state( $order ) {
         $result['status'] = 'blocked';
     } else {
         $result['status'] = 'ready';
+        $result['items']  = $ready_items;
+        unset( $item_contexts, $item_states, $ready_items );
+        return $result;
     }
 
+    $single_item       = 1 === count( $item_states );
+    $result['items'][] = array(
+        'item_id'      => $single_item ? absint( $item_states[0]['item_id'] ) : 0,
+        'product_name' => $single_item
+            ? sanitize_text_field( $item_states[0]['product_name'] )
+            : __( 'Gift Card order', 'wc-topup-fields' ),
+        'status'       => $result['status'],
+        'mode'         => '',
+        'entries'      => array(),
+    );
+
+    unset( $item_contexts, $item_states, $ready_items );
     return $result;
 }
 

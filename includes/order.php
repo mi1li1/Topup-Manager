@@ -7,6 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 add_action( 'woocommerce_checkout_create_order_line_item', 'wctf_save_order_item_customer_fields', 10, 4 );
 add_action( 'woocommerce_checkout_create_order_line_item', 'wctf_snapshot_fazercards_order_item_binding', 20, 4 );
 add_action( 'woocommerce_checkout_create_order_line_item', 'wctf_snapshot_fazercards_giftcard_order_item_binding', 30, 4 );
+add_action( 'woocommerce_checkout_order_created', 'wctf_finalize_fazercards_giftcard_order_item_configuration', 20 );
 add_action( 'woocommerce_after_order_itemmeta', 'wctf_display_fazercards_order_item_payload', 10, 3 );
 add_action( 'add_meta_boxes', 'wctf_register_fazercards_dry_run_meta_box' );
 add_action( 'add_meta_boxes', 'wctf_register_fazercards_giftcard_dry_run_meta_box' );
@@ -54,6 +55,533 @@ function wctf_save_order_item_customer_fields( $item, $cart_item_key, $values, $
             $value,
             true
         );
+    }
+}
+
+/**
+ * Read normalized Gift Card configuration from one exact WooCommerce product.
+ *
+ * The supplied product is never replaced with its parent or a sibling.
+ *
+ * @param WC_Product|false|null $product WooCommerce product or variation.
+ * @return array
+ */
+function wctf_get_fazercards_giftcard_product_configuration( $product ) {
+    $configuration = array(
+        'item_kind'            => '',
+        'product_id'           => 0,
+        'variation_id'         => 0,
+        'category_id'          => '',
+        'card_id'              => '',
+        'offer_key'            => '',
+        'offer_name'           => '',
+        'price_usd'            => '',
+        'currency'             => '',
+        'region'               => '',
+        'min_order_quantity'   => '',
+        'max_order_quantity'   => '',
+        'auto_purchase_enabled' => 'no',
+        'snapshot_created_at'  => '',
+        'configuration_status' => '',
+    );
+
+    if ( ! $product instanceof WC_Product ) {
+        return $configuration;
+    }
+
+    $is_variation = $product instanceof WC_Product_Variation || $product->is_type( 'variation' );
+    $configuration['item_kind'] = sanitize_key( (string) $product->get_meta( '_wctf_fazer_product_kind', true ) );
+    $configuration['product_id'] = $is_variation
+        ? absint( $product->get_parent_id() )
+        : absint( $product->get_id() );
+    $configuration['variation_id'] = $is_variation ? absint( $product->get_id() ) : 0;
+    $configuration['category_id'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_category_id', true ) );
+    $configuration['card_id'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_card_id', true ) );
+    $configuration['offer_key'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_offer_key', true ) );
+    $configuration['offer_name'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_offer_name', true ) );
+    $configuration['price_usd'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_price_usd', true ) );
+    $configuration['currency'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_currency', true ) );
+    $configuration['region'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_region', true ) );
+    $configuration['min_order_quantity'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_min_quantity', true ) );
+    $configuration['max_order_quantity'] = wctf_normalize_fazercards_giftcard_payload_value( $product->get_meta( '_wctf_fazer_giftcard_max_quantity', true ) );
+    $configuration['auto_purchase_enabled'] = 'yes' === (string) $product->get_meta( '_wctf_fazer_giftcard_auto_purchase_enabled', true )
+        ? 'yes'
+        : 'no';
+
+    return $configuration;
+}
+
+/**
+ * Determine whether a configuration contains one internally consistent mapping.
+ *
+ * @param array $configuration Normalized Gift Card configuration.
+ * @return bool
+ */
+function wctf_fazercards_giftcard_configuration_has_exact_mapping( $configuration ) {
+    if ( ! is_array( $configuration ) ) {
+        return false;
+    }
+
+    $category_id = isset( $configuration['category_id'] )
+        ? wctf_normalize_fazercards_giftcard_payload_value( $configuration['category_id'] )
+        : '';
+    $card_id = isset( $configuration['card_id'] )
+        ? wctf_normalize_fazercards_giftcard_payload_value( $configuration['card_id'] )
+        : '';
+    $offer_key = isset( $configuration['offer_key'] )
+        ? wctf_normalize_fazercards_giftcard_payload_value( $configuration['offer_key'] )
+        : '';
+
+    return 'giftcard' === sanitize_key( isset( $configuration['item_kind'] ) ? (string) $configuration['item_kind'] : '' )
+        && '' !== $category_id
+        && '' !== $card_id
+        && hash_equals( $category_id . '::' . $card_id, $offer_key );
+}
+
+/**
+ * Resolve Gift Card configuration for one exact WooCommerce order item.
+ *
+ * A valid immutable snapshot always wins. Variation resolution never reads a
+ * parent or sibling mapping; the parent is used only to identify the family.
+ *
+ * @param WC_Order_Item_Product|mixed $item WooCommerce order line item.
+ * @return array
+ */
+function wctf_resolve_fazercards_giftcard_order_item_configuration( $item ) {
+    $result = array(
+        'status'        => 'invalid_item',
+        'applicable'    => false,
+        'resolved'      => false,
+        'source'        => 'none',
+        'item_id'       => 0,
+        'product_id'    => 0,
+        'variation_id'  => 0,
+        'has_snapshot'  => false,
+        'configuration' => array(),
+    );
+
+    if ( ! $item instanceof WC_Order_Item_Product ) {
+        return $result;
+    }
+
+    $result['item_id']      = absint( $item->get_id() );
+    $result['product_id']   = absint( $item->get_product_id() );
+    $result['variation_id'] = absint( $item->get_variation_id() );
+    $item_kind = sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) );
+    $snapshot  = function_exists( 'wctf_get_fazercards_giftcard_order_item_snapshot' )
+        ? wctf_get_fazercards_giftcard_order_item_snapshot( $item )
+        : array();
+    $has_snapshot_marker = 'giftcard' === $item_kind
+        || '' !== wctf_normalize_fazercards_giftcard_payload_value(
+            $item->get_meta( '_wctf_fazer_giftcard_snapshot_created_at', true )
+        );
+
+    if ( $has_snapshot_marker ) {
+        $result['applicable']   = true;
+        $result['has_snapshot'] = true;
+        $result['source']       = 'snapshot';
+        $result['configuration'] = is_array( $snapshot ) ? $snapshot : array();
+
+        if ( 0 < $result['variation_id'] ) {
+            $snapshot_variation_id = isset( $snapshot['variation_id'] )
+                ? absint( $snapshot['variation_id'] )
+                : 0;
+
+            if ( $snapshot_variation_id !== $result['variation_id'] ) {
+                $result['status'] = 'snapshot_variation_mismatch';
+                return $result;
+            }
+
+            if ( ! wctf_fazercards_giftcard_configuration_has_exact_mapping( $snapshot ) ) {
+                $result['status'] = 'missing_variation_mapping';
+                return $result;
+            }
+        } elseif (
+            empty( $snapshot['category_id'] )
+            || empty( $snapshot['card_id'] )
+        ) {
+            $result['status'] = 'missing_mapping';
+            return $result;
+        }
+
+        $result['status']   = 'resolved';
+        $result['resolved'] = true;
+        return $result;
+    }
+
+    if ( 0 < $result['variation_id'] ) {
+        $variation = wc_get_product( $result['variation_id'] );
+        $parent    = 0 < $result['product_id'] ? wc_get_product( $result['product_id'] ) : false;
+        $configuration = wctf_get_fazercards_giftcard_product_configuration( $variation );
+
+        if ( ! $parent instanceof WC_Product ) {
+            if (
+                $variation instanceof WC_Product_Variation
+                && 'giftcard' === sanitize_key( (string) $configuration['item_kind'] )
+            ) {
+                $result['applicable'] = true;
+            }
+
+            $result['status'] = 'invalid_product';
+            return $result;
+        }
+
+        $is_giftcard_family = 'giftcard' === sanitize_key( (string) $parent->get_meta( '_topup_type', true ) );
+
+        if ( ! $is_giftcard_family ) {
+            $result['status'] = $variation instanceof WC_Product_Variation
+                ? 'not_applicable'
+                : 'invalid_product';
+            return $result;
+        }
+
+        $result['applicable'] = true;
+
+        if ( ! $variation instanceof WC_Product_Variation ) {
+            $result['status'] = 'invalid_product';
+            return $result;
+        }
+
+        $configuration['product_id']   = $result['product_id'];
+        $configuration['variation_id'] = $result['variation_id'];
+        $result['configuration']       = $configuration;
+
+        if ( ! wctf_fazercards_giftcard_configuration_has_exact_mapping( $configuration ) ) {
+            $result['status'] = 'missing_variation_mapping';
+            return $result;
+        }
+
+        $result['status']   = 'resolved';
+        $result['resolved'] = true;
+        $result['source']   = 'variation';
+        return $result;
+    }
+
+    $product = 0 < $result['product_id'] ? wc_get_product( $result['product_id'] ) : false;
+
+    if ( ! $product instanceof WC_Product ) {
+        $result['status'] = 'invalid_product';
+        return $result;
+    }
+
+    if ( ! wctf_is_fazercards_giftcard_product( $product ) ) {
+        $result['status'] = 'not_applicable';
+        return $result;
+    }
+
+    $result['applicable']    = true;
+    $result['resolved']      = true;
+    $result['status']        = 'resolved';
+    $result['source']        = 'simple';
+    $result['configuration'] = wctf_get_fazercards_giftcard_product_configuration( $product );
+
+    return $result;
+}
+
+/**
+ * Persist a resolved legacy variation mapping before any remote purchase.
+ *
+ * @param WC_Order_Item_Product $item       WooCommerce order line item.
+ * @param array                 $resolution Normalized resolver result.
+ * @return WC_Order_Item_Product|WP_Error
+ */
+function wctf_persist_fazercards_giftcard_variation_resolution_snapshot( $item, $resolution ) {
+    if (
+        ! $item instanceof WC_Order_Item_Product
+        || ! is_array( $resolution )
+        || empty( $resolution['resolved'] )
+        || 'variation' !== ( isset( $resolution['source'] ) ? $resolution['source'] : '' )
+        || empty( $resolution['configuration'] )
+        || ! is_array( $resolution['configuration'] )
+        || 1 > absint( $item->get_id() )
+        || absint( $item->get_variation_id() ) !== absint( isset( $resolution['variation_id'] ) ? $resolution['variation_id'] : 0 )
+    ) {
+        return new WP_Error(
+            'wctf_giftcard_variation_snapshot_invalid',
+            __( 'The exact Gift Card variation mapping could not be snapshotted safely.', 'wc-topup-fields' )
+        );
+    }
+
+    $configuration = $resolution['configuration'];
+
+    try {
+        $item->update_meta_data( '_wctf_fazer_item_kind', 'giftcard' );
+        $item->update_meta_data( '_wctf_fazer_giftcard_product_id', absint( $item->get_product_id() ) );
+        $item->update_meta_data( '_wctf_fazer_giftcard_variation_id', absint( $item->get_variation_id() ) );
+        $item->update_meta_data( '_wctf_fazer_giftcard_category_id', $configuration['category_id'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_card_id', $configuration['card_id'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_offer_key', $configuration['offer_key'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_offer_name', $configuration['offer_name'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_price_usd', $configuration['price_usd'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_currency', $configuration['currency'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_region', $configuration['region'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_min_quantity', $configuration['min_order_quantity'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_max_quantity', $configuration['max_order_quantity'] );
+        $item->update_meta_data( '_wctf_fazer_giftcard_configuration_status', 'resolved' );
+        $item->update_meta_data(
+            '_wctf_fazer_giftcard_snapshot_created_at',
+            wctf_normalize_fazercards_giftcard_payload_value( current_time( 'mysql', true ) )
+        );
+        $item->update_meta_data(
+            '_wctf_fazer_giftcard_auto_purchase_enabled_snapshot',
+            'yes' === ( isset( $configuration['auto_purchase_enabled'] ) ? $configuration['auto_purchase_enabled'] : 'no' )
+                ? 'yes'
+                : 'no'
+        );
+        $item->save_meta_data();
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+
+        return new WP_Error(
+            'wctf_giftcard_variation_snapshot_failed',
+            __( 'The exact Gift Card variation mapping could not be snapshotted safely.', 'wc-topup-fields' )
+        );
+    }
+
+    $stored = new WC_Order_Item_Product( absint( $item->get_id() ) );
+    $stored_resolution = wctf_resolve_fazercards_giftcard_order_item_configuration( $stored );
+
+    if (
+        empty( $stored_resolution['resolved'] )
+        || 'snapshot' !== $stored_resolution['source']
+        || absint( $stored_resolution['variation_id'] ) !== absint( $item->get_variation_id() )
+    ) {
+        return new WP_Error(
+            'wctf_giftcard_variation_snapshot_verification_failed',
+            __( 'The exact Gift Card variation mapping could not be verified after saving.', 'wc-topup-fields' )
+        );
+    }
+
+    return $stored;
+}
+
+/**
+ * Return the per-order-item configuration-note lock option name.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @param int $item_id  WooCommerce order item ID.
+ * @return string
+ */
+function wctf_get_fazercards_giftcard_configuration_note_lock_key( $order_id, $item_id ) {
+    return 'wctf_fazer_giftcard_configuration_note_lock_' . absint( $order_id ) . '_' . absint( $item_id );
+}
+
+/**
+ * Acquire an atomic five-minute configuration-note lock for one order item.
+ *
+ * @param int $order_id WooCommerce order ID.
+ * @param int $item_id  WooCommerce order item ID.
+ * @return string|WP_Error Lock token or a safe error.
+ */
+function wctf_acquire_fazercards_giftcard_configuration_note_lock( $order_id, $item_id ) {
+    $order_id = absint( $order_id );
+    $item_id  = absint( $item_id );
+
+    if ( 1 > $order_id || 1 > $item_id ) {
+        return new WP_Error( 'wctf_giftcard_configuration_note_lock_invalid' );
+    }
+
+    $lock_key = wctf_get_fazercards_giftcard_configuration_note_lock_key( $order_id, $item_id );
+    $now      = time();
+    $token    = wp_generate_uuid4();
+    $lock     = array(
+        'created' => $now,
+        'expires' => $now + ( 5 * MINUTE_IN_SECONDS ),
+        'token'   => $token,
+    );
+
+    if ( add_option( $lock_key, $lock, '', 'no' ) ) {
+        return $token;
+    }
+
+    $existing = get_option( $lock_key, array() );
+    $expires  = is_array( $existing ) && isset( $existing['expires'] )
+        ? absint( $existing['expires'] )
+        : 0;
+
+    if ( 0 !== $expires && $expires > $now ) {
+        return new WP_Error( 'wctf_giftcard_configuration_note_lock_held' );
+    }
+
+    delete_option( $lock_key );
+
+    return new WP_Error( 'wctf_giftcard_configuration_note_stale_lock_removed' );
+}
+
+/**
+ * Release a configuration-note lock only when the supplied token owns it.
+ *
+ * @param int    $order_id WooCommerce order ID.
+ * @param int    $item_id  WooCommerce order item ID.
+ * @param string $token    Lock ownership token.
+ * @return void
+ */
+function wctf_release_fazercards_giftcard_configuration_note_lock( $order_id, $item_id, $token ) {
+    if ( ! is_string( $token ) || '' === $token ) {
+        return;
+    }
+
+    $lock_key = wctf_get_fazercards_giftcard_configuration_note_lock_key( $order_id, $item_id );
+    $existing = get_option( $lock_key, array() );
+
+    if (
+        is_array( $existing )
+        && isset( $existing['token'] )
+        && is_string( $existing['token'] )
+        && hash_equals( $existing['token'], $token )
+    ) {
+        delete_option( $lock_key );
+    }
+}
+
+/**
+ * Record one fail-closed, non-sensitive variation configuration failure.
+ *
+ * @param WC_Order              $order      WooCommerce order.
+ * @param WC_Order_Item_Product $item       WooCommerce order line item.
+ * @param array                 $resolution Normalized resolver result.
+ * @return void
+ */
+function wctf_record_fazercards_giftcard_variation_configuration_failure( $order, $item, $resolution ) {
+    if (
+        ! $order instanceof WC_Order
+        || ! $item instanceof WC_Order_Item_Product
+        || ! is_array( $resolution )
+        || empty( $resolution['applicable'] )
+        || ! empty( $resolution['resolved'] )
+        || 1 > absint( $item->get_id() )
+        || 1 > absint( $item->get_variation_id() )
+        || absint( $item->get_order_id() ) !== absint( $order->get_id() )
+    ) {
+        return;
+    }
+
+    $failure = sanitize_key( isset( $resolution['status'] ) ? (string) $resolution['status'] : '' );
+
+    if ( ! in_array( $failure, array( 'missing_variation_mapping', 'invalid_product', 'snapshot_variation_mismatch' ), true ) ) {
+        $failure = 'variation_configuration_unavailable';
+    }
+
+    try {
+        $item->update_meta_data( '_wctf_fazer_item_kind', 'giftcard' );
+        $item->update_meta_data( '_wctf_fazer_giftcard_product_id', absint( $item->get_product_id() ) );
+        $item->update_meta_data( '_wctf_fazer_giftcard_variation_id', absint( $item->get_variation_id() ) );
+        $item->update_meta_data( '_wctf_fazer_giftcard_auto_purchase_enabled_snapshot', 'no' );
+        $item->update_meta_data( '_wctf_fazer_giftcard_configuration_failure', $failure );
+        $item->save_meta_data();
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+        return;
+    }
+
+    if ( 'yes' === (string) $item->get_meta( '_wctf_fazer_giftcard_configuration_note_recorded', true ) ) {
+        return;
+    }
+
+    $order_id   = absint( $order->get_id() );
+    $item_id    = absint( $item->get_id() );
+    $lock_token = wctf_acquire_fazercards_giftcard_configuration_note_lock( $order_id, $item_id );
+
+    if ( is_wp_error( $lock_token ) ) {
+        return;
+    }
+
+    try {
+        $stored_item = new WC_Order_Item_Product( $item_id );
+
+        if (
+            absint( $stored_item->get_order_id() ) !== $order_id
+            || absint( $stored_item->get_variation_id() ) !== absint( $item->get_variation_id() )
+            || 'yes' === (string) $stored_item->get_meta( '_wctf_fazer_giftcard_configuration_note_recorded', true )
+        ) {
+            return;
+        }
+
+        $note_id = $order->add_order_note(
+            sprintf(
+                /* translators: 1: WooCommerce order item ID, 2: purchased variation ID. */
+                __( 'Gift Card configuration is unavailable for order item #%1$d (variation #%2$d). No upstream purchase was attempted.', 'wc-topup-fields' ),
+                $item_id,
+                absint( $stored_item->get_variation_id() )
+            ),
+            0,
+            false
+        );
+
+        if ( 1 > absint( $note_id ) ) {
+            throw new RuntimeException( 'Gift Card configuration note could not be recorded.' );
+        }
+
+        $stored_item->update_meta_data( '_wctf_fazer_giftcard_configuration_note_recorded', 'yes' );
+        $stored_item->save_meta_data();
+
+        $verified_item = new WC_Order_Item_Product( $item_id );
+
+        if ( 'yes' !== (string) $verified_item->get_meta( '_wctf_fazer_giftcard_configuration_note_recorded', true ) ) {
+            throw new RuntimeException( 'Gift Card configuration-note marker persistence verification failed.' );
+        }
+    } catch ( Throwable $throwable ) {
+        unset( $throwable );
+    } finally {
+        wctf_release_fazercards_giftcard_configuration_note_lock( $order_id, $item_id, $lock_token );
+    }
+}
+
+/**
+ * Finalize fail-closed configuration state after checkout item IDs exist.
+ *
+ * @param WC_Order $order Newly created WooCommerce order.
+ * @return void
+ */
+function wctf_finalize_fazercards_giftcard_order_item_configuration( $order ) {
+    if ( ! $order instanceof WC_Order ) {
+        return;
+    }
+
+    foreach ( $order->get_items( 'line_item' ) as $item ) {
+        if ( ! $item instanceof WC_Order_Item_Product || 1 > absint( $item->get_variation_id() ) ) {
+            continue;
+        }
+
+        $resolution = wctf_resolve_fazercards_giftcard_order_item_configuration( $item );
+
+        if (
+            ! empty( $resolution['resolved'] )
+            && 'variation' === ( isset( $resolution['source'] ) ? $resolution['source'] : '' )
+        ) {
+            $snapshotted_item = wctf_persist_fazercards_giftcard_variation_resolution_snapshot( $item, $resolution );
+
+            if ( is_wp_error( $snapshotted_item ) ) {
+                $resolution['resolved'] = false;
+                $resolution['status']   = 'variation_snapshot_failed';
+                wctf_record_fazercards_giftcard_variation_configuration_failure( $order, $item, $resolution );
+            }
+
+            continue;
+        }
+
+        if ( ! empty( $resolution['applicable'] ) && empty( $resolution['resolved'] ) ) {
+            if ( empty( $resolution['has_snapshot'] ) ) {
+                try {
+                    $item->update_meta_data( '_wctf_fazer_item_kind', 'giftcard' );
+                    $item->update_meta_data( '_wctf_fazer_giftcard_product_id', absint( $item->get_product_id() ) );
+                    $item->update_meta_data( '_wctf_fazer_giftcard_variation_id', absint( $item->get_variation_id() ) );
+                    $item->update_meta_data( '_wctf_fazer_giftcard_configuration_status', sanitize_key( $resolution['status'] ) );
+                    $item->update_meta_data( '_wctf_fazer_giftcard_auto_purchase_enabled_snapshot', 'no' );
+                    $item->update_meta_data(
+                        '_wctf_fazer_giftcard_snapshot_created_at',
+                        wctf_normalize_fazercards_giftcard_payload_value( current_time( 'mysql', true ) )
+                    );
+                    $item->save_meta_data();
+                    $item       = new WC_Order_Item_Product( absint( $item->get_id() ) );
+                    $resolution = wctf_resolve_fazercards_giftcard_order_item_configuration( $item );
+                } catch ( Throwable $throwable ) {
+                    unset( $throwable );
+                }
+            }
+
+            wctf_record_fazercards_giftcard_variation_configuration_failure( $order, $item, $resolution );
+        }
     }
 }
 
@@ -128,30 +656,37 @@ function wctf_snapshot_fazercards_giftcard_order_item_binding( $item, $cart_item
         return;
     }
 
-    $product = $values['data'];
+    $resolution = wctf_resolve_fazercards_giftcard_order_item_configuration( $item );
 
-    if ( ! wctf_is_fazercards_giftcard_product( $product ) ) {
+    if (
+        empty( $resolution['applicable'] )
+        || ( 0 === absint( $item->get_variation_id() ) && empty( $resolution['resolved'] ) )
+    ) {
         return;
     }
 
-    $product_id = absint( $product->get_id() );
-    $auto_purchase = 'yes' === (string) get_post_meta(
-        $product_id,
-        '_wctf_fazer_giftcard_auto_purchase_enabled',
-        true
-    ) ? 'yes' : 'no';
-    $snapshot   = array(
+    $configuration = isset( $resolution['configuration'] ) && is_array( $resolution['configuration'] )
+        ? $resolution['configuration']
+        : array();
+    $auto_purchase = ! empty( $resolution['resolved'] )
+        && 'yes' === ( isset( $configuration['auto_purchase_enabled'] ) ? $configuration['auto_purchase_enabled'] : 'no' )
+            ? 'yes'
+            : 'no';
+    $snapshot = array(
         '_wctf_fazer_item_kind'                        => 'giftcard',
-        '_wctf_fazer_giftcard_category_id'             => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_category_id', true ) ),
-        '_wctf_fazer_giftcard_card_id'                 => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_card_id', true ) ),
-        '_wctf_fazer_giftcard_offer_key'               => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_offer_key', true ) ),
-        '_wctf_fazer_giftcard_offer_name'              => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_offer_name', true ) ),
-        '_wctf_fazer_giftcard_price_usd'               => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_price_usd', true ) ),
-        '_wctf_fazer_giftcard_currency'                => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_currency', true ) ),
-        '_wctf_fazer_giftcard_region'                  => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_region', true ) ),
-        '_wctf_fazer_giftcard_min_quantity'            => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_min_quantity', true ) ),
-        '_wctf_fazer_giftcard_max_quantity'            => wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_max_quantity', true ) ),
+        '_wctf_fazer_giftcard_product_id'              => absint( $item->get_product_id() ),
+        '_wctf_fazer_giftcard_variation_id'            => absint( $item->get_variation_id() ),
+        '_wctf_fazer_giftcard_category_id'             => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['category_id'] ) ? $configuration['category_id'] : '' ),
+        '_wctf_fazer_giftcard_card_id'                 => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['card_id'] ) ? $configuration['card_id'] : '' ),
+        '_wctf_fazer_giftcard_offer_key'               => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['offer_key'] ) ? $configuration['offer_key'] : '' ),
+        '_wctf_fazer_giftcard_offer_name'              => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['offer_name'] ) ? $configuration['offer_name'] : '' ),
+        '_wctf_fazer_giftcard_price_usd'               => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['price_usd'] ) ? $configuration['price_usd'] : '' ),
+        '_wctf_fazer_giftcard_currency'                => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['currency'] ) ? $configuration['currency'] : '' ),
+        '_wctf_fazer_giftcard_region'                  => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['region'] ) ? $configuration['region'] : '' ),
+        '_wctf_fazer_giftcard_min_quantity'            => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['min_order_quantity'] ) ? $configuration['min_order_quantity'] : '' ),
+        '_wctf_fazer_giftcard_max_quantity'            => wctf_normalize_fazercards_giftcard_payload_value( isset( $configuration['max_order_quantity'] ) ? $configuration['max_order_quantity'] : '' ),
         '_wctf_fazer_giftcard_snapshot_created_at'     => wctf_normalize_fazercards_giftcard_payload_value( current_time( 'mysql', true ) ),
+        '_wctf_fazer_giftcard_configuration_status'    => ! empty( $resolution['resolved'] ) ? 'resolved' : sanitize_key( $resolution['status'] ),
         '_wctf_fazer_giftcard_auto_purchase_enabled_snapshot' => $auto_purchase,
     );
 
@@ -167,14 +702,27 @@ function wctf_snapshot_fazercards_giftcard_order_item_binding( $item, $cart_item
  * @return bool
  */
 function wctf_is_fazercards_giftcard_product( $product ) {
-    if ( ! $product instanceof WC_Product || ! $product->is_type( 'simple' ) ) {
+    if ( ! $product instanceof WC_Product ) {
         return false;
     }
 
-    $product_id    = absint( $product->get_id() );
-    $topup_type    = sanitize_key( (string) get_post_meta( $product_id, '_topup_type', true ) );
-    $product_kind  = sanitize_key( (string) get_post_meta( $product_id, '_wctf_fazer_product_kind', true ) );
-    $card_id       = wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_card_id', true ) );
+    if ( $product instanceof WC_Product_Variation || $product->is_type( 'variation' ) ) {
+        $parent = wc_get_product( absint( $product->get_parent_id() ) );
+        $configuration = wctf_get_fazercards_giftcard_product_configuration( $product );
+
+        return $parent instanceof WC_Product
+            && 'giftcard' === sanitize_key( (string) $parent->get_meta( '_topup_type', true ) )
+            && wctf_fazercards_giftcard_configuration_has_exact_mapping( $configuration );
+    }
+
+    if ( ! $product->is_type( 'simple' ) ) {
+        return false;
+    }
+
+    $product_id   = absint( $product->get_id() );
+    $topup_type   = sanitize_key( (string) get_post_meta( $product_id, '_topup_type', true ) );
+    $product_kind = sanitize_key( (string) get_post_meta( $product_id, '_wctf_fazer_product_kind', true ) );
+    $card_id      = wctf_normalize_fazercards_giftcard_payload_value( get_post_meta( $product_id, '_wctf_fazer_giftcard_card_id', true ) );
 
     return 'giftcard' === $topup_type && 'giftcard' === $product_kind && '' !== $card_id;
 }
@@ -192,6 +740,8 @@ function wctf_get_fazercards_giftcard_order_item_snapshot( $item ) {
 
     $snapshot = array(
         'item_kind'           => sanitize_key( (string) $item->get_meta( '_wctf_fazer_item_kind', true ) ),
+        'product_id'          => absint( $item->get_meta( '_wctf_fazer_giftcard_product_id', true ) ),
+        'variation_id'        => absint( $item->get_meta( '_wctf_fazer_giftcard_variation_id', true ) ),
         'category_id'         => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_category_id', true ) ),
         'card_id'             => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_card_id', true ) ),
         'offer_key'           => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_offer_key', true ) ),
@@ -202,6 +752,8 @@ function wctf_get_fazercards_giftcard_order_item_snapshot( $item ) {
         'min_order_quantity'  => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_min_quantity', true ) ),
         'max_order_quantity'  => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_max_quantity', true ) ),
         'snapshot_created_at' => wctf_normalize_fazercards_giftcard_payload_value( $item->get_meta( '_wctf_fazer_giftcard_snapshot_created_at', true ) ),
+        'configuration_status' => sanitize_key( (string) $item->get_meta( '_wctf_fazer_giftcard_configuration_status', true ) ),
+        'auto_purchase_enabled' => 'yes' === (string) $item->get_meta( '_wctf_fazer_giftcard_auto_purchase_enabled_snapshot', true ) ? 'yes' : 'no',
     );
 
     return 'giftcard' === $snapshot['item_kind'] ? $snapshot : array();
