@@ -10,6 +10,13 @@ add_action( 'woocommerce_before_thankyou', 'wctf_prepare_modern_thankyou_layout'
 add_action( 'woocommerce_before_thankyou', 'wctf_render_modern_thankyou_hero', 10, 1 );
 add_filter( 'woocommerce_thankyou_order_received_text', 'wctf_filter_modern_thankyou_received_text', 10, 2 );
 add_filter( 'woocommerce_get_order_item_totals', 'wctf_filter_modern_thankyou_order_totals', 20, 3 );
+add_filter( 'woocommerce_order_item_name', 'wctf_filter_modern_thankyou_order_item_name', 20, 3 );
+add_filter(
+    'woocommerce_order_item_get_formatted_meta_data',
+    'wctf_filter_modern_thankyou_order_item_meta',
+    20,
+    2
+);
 
 /**
  * Return the order key supplied by the standard Order Received request.
@@ -104,6 +111,310 @@ function wctf_get_modern_thankyou_success_order( $order_id = 0 ) {
     }
 
     return $order;
+}
+
+/**
+ * Normalize one WooCommerce variation-attribute metadata key for comparison.
+ *
+ * @param mixed $key Raw metadata or product-attribute key.
+ * @return string
+ */
+function wctf_normalize_modern_thankyou_variation_attribute_key( $key ) {
+    if ( ! is_scalar( $key ) ) {
+        return '';
+    }
+
+    $key = trim( rawurldecode( wp_strip_all_tags( (string) $key ) ) );
+
+    if ( 0 === stripos( $key, 'attribute_' ) ) {
+        $key = substr( $key, strlen( 'attribute_' ) );
+    }
+
+    return function_exists( 'mb_strtolower' )
+        ? mb_strtolower( $key, 'UTF-8' )
+        : strtolower( $key );
+}
+
+/**
+ * Add one product variation-attribute key to a normalized lookup table.
+ *
+ * @param array $keys Attribute-key lookup table.
+ * @param mixed $key  Raw product attribute key.
+ * @return void
+ */
+function wctf_add_modern_thankyou_variation_attribute_key( &$keys, $key ) {
+    $key = wctf_normalize_modern_thankyou_variation_attribute_key( $key );
+
+    if ( '' !== $key ) {
+        $keys[ $key ] = true;
+    }
+}
+
+/**
+ * Identify variation attribute keys without using current product values.
+ *
+ * The order item remains the source of displayed values. Current variation or
+ * parent data only helps identify which public metadata records are standard
+ * variation attributes; global `pa_` and `attribute_` keys remain identifiable
+ * when a variation no longer exists.
+ *
+ * @param WC_Order_Item_Product $item Exact WooCommerce order line item.
+ * @return array
+ */
+function wctf_get_modern_thankyou_variation_attribute_keys( $item ) {
+    $keys = array();
+
+    if ( ! $item instanceof WC_Order_Item_Product || 0 === absint( $item->get_variation_id() ) ) {
+        return $keys;
+    }
+
+    $product = $item->get_product();
+
+    if ( $product instanceof WC_Product_Variation ) {
+        foreach ( array_keys( (array) $product->get_variation_attributes( false ) ) as $attribute_key ) {
+            wctf_add_modern_thankyou_variation_attribute_key( $keys, $attribute_key );
+        }
+    }
+
+    if ( function_exists( 'wc_get_product_variation_attributes' ) ) {
+        foreach ( array_keys( (array) wc_get_product_variation_attributes( $item->get_variation_id() ) ) as $attribute_key ) {
+            wctf_add_modern_thankyou_variation_attribute_key( $keys, $attribute_key );
+        }
+    }
+
+    $parent = function_exists( 'wc_get_product' )
+        ? wc_get_product( absint( $item->get_product_id() ) )
+        : false;
+
+    if ( $parent instanceof WC_Product && method_exists( $parent, 'get_attributes' ) ) {
+        foreach ( (array) $parent->get_attributes() as $attribute_key => $attribute ) {
+            if (
+                ! is_object( $attribute )
+                || ! method_exists( $attribute, 'get_variation' )
+                || ! $attribute->get_variation()
+            ) {
+                continue;
+            }
+
+            wctf_add_modern_thankyou_variation_attribute_key( $keys, $attribute_key );
+
+            if ( method_exists( $attribute, 'get_name' ) ) {
+                wctf_add_modern_thankyou_variation_attribute_key( $keys, $attribute->get_name() );
+            }
+        }
+    }
+
+    return $keys;
+}
+
+/**
+ * Return the customer-visible name for one saved variation attribute value.
+ *
+ * @param string $meta_key  Saved order-item metadata key.
+ * @param mixed  $raw_value Saved order-item metadata value.
+ * @return string
+ */
+function wctf_get_modern_thankyou_variation_attribute_value( $meta_key, $raw_value ) {
+    if ( ! is_scalar( $raw_value ) ) {
+        return '';
+    }
+
+    $value        = (string) $raw_value;
+    $taxonomy_key = wctf_normalize_modern_thankyou_variation_attribute_key( $meta_key );
+
+    if ( '' !== $taxonomy_key && taxonomy_exists( $taxonomy_key ) ) {
+        $term = get_term_by( 'slug', $value, $taxonomy_key );
+
+        if ( $term instanceof WP_Term ) {
+            $value = $term->name;
+        }
+    }
+
+    $charset = get_bloginfo( 'charset' );
+    $charset = is_string( $charset ) && '' !== $charset ? $charset : 'UTF-8';
+    $value   = html_entity_decode( $value, ENT_QUOTES, $charset );
+
+    return sanitize_text_field( wp_strip_all_tags( $value, true ) );
+}
+
+/**
+ * Read standard purchased variation attributes from the exact order item.
+ *
+ * @param WC_Order_Item_Product $item Exact WooCommerce order line item.
+ * @return array<int,array{meta_id:int,value:string}>
+ */
+function wctf_get_modern_thankyou_order_item_variation_attributes( $item ) {
+    static $attributes_by_item = array();
+
+    if ( ! $item instanceof WC_Order_Item_Product || 0 === absint( $item->get_variation_id() ) ) {
+        return array();
+    }
+
+    $item_id = absint( $item->get_id() );
+
+    if ( 0 < $item_id && isset( $attributes_by_item[ $item_id ] ) ) {
+        return $attributes_by_item[ $item_id ];
+    }
+
+    $known_keys = wctf_get_modern_thankyou_variation_attribute_keys( $item );
+    $attributes = array();
+
+    foreach ( $item->get_meta_data() as $metadata ) {
+        $metadata = is_object( $metadata ) && method_exists( $metadata, 'get_data' )
+            ? $metadata->get_data()
+            : array();
+        $meta_id  = isset( $metadata['id'] ) ? absint( $metadata['id'] ) : 0;
+        $meta_key = isset( $metadata['key'] ) && is_scalar( $metadata['key'] )
+            ? (string) $metadata['key']
+            : '';
+        $key      = wctf_normalize_modern_thankyou_variation_attribute_key( $meta_key );
+        $is_standard_variation_key = '' !== $key
+            && (
+                isset( $known_keys[ $key ] )
+                || 0 === stripos( $meta_key, 'attribute_' )
+                || 0 === strpos( $key, 'pa_' )
+                || taxonomy_exists( $key )
+            );
+
+        if (
+            0 === $meta_id
+            || '' === $meta_key
+            || 0 === strpos( $meta_key, '_' )
+            || ! $is_standard_variation_key
+        ) {
+            continue;
+        }
+
+        $value = wctf_get_modern_thankyou_variation_attribute_value(
+            $meta_key,
+            isset( $metadata['value'] ) ? $metadata['value'] : ''
+        );
+
+        if ( '' !== $value ) {
+            $attributes[] = array(
+                'meta_id' => $meta_id,
+                'value'   => $value,
+            );
+        }
+    }
+
+    if ( 0 < $item_id ) {
+        $attributes_by_item[ $item_id ] = $attributes;
+    }
+
+    return $attributes;
+}
+
+/**
+ * Determine whether a display title already clearly contains one value.
+ *
+ * @param string $title Existing plain-text title.
+ * @param string $value Variation attribute display value.
+ * @return bool
+ */
+function wctf_modern_thankyou_title_contains_variation_value( $title, $value ) {
+    $title = preg_replace( '/\s+/u', ' ', trim( (string) $title ) );
+    $value = preg_replace( '/\s+/u', ' ', trim( (string) $value ) );
+
+    if ( ! is_string( $title ) || ! is_string( $value ) || '' === $value ) {
+        return false;
+    }
+
+    $matched = preg_match(
+        '/(?<![\p{L}\p{N}])' . preg_quote( $value, '/' ) . '(?![\p{L}\p{N}])/iu',
+        $title
+    );
+
+    if ( false !== $matched ) {
+        return 1 === $matched;
+    }
+
+    return false !== stripos( $title, $value );
+}
+
+/**
+ * Append purchased variation values to a Gift Card title on Thank You only.
+ *
+ * @param string                $product_name Existing escaped WooCommerce title markup.
+ * @param WC_Order_Item_Product $item         Exact WooCommerce order line item.
+ * @param bool                  $is_visible   Whether WooCommerce linked the product.
+ * @return string
+ */
+function wctf_filter_modern_thankyou_order_item_name( $product_name, $item, $is_visible = false ) {
+    unset( $is_visible );
+
+    if (
+        ! $item instanceof WC_Order_Item_Product
+        || ! function_exists( 'wctf_is_fazercards_giftcard_customer_order_item' )
+        || ! wctf_is_fazercards_giftcard_customer_order_item( $item )
+        || 0 === absint( $item->get_variation_id() )
+    ) {
+        return $product_name;
+    }
+
+    $order = wctf_get_modern_thankyou_success_order( $item->get_order_id() );
+
+    if ( ! $order instanceof WC_Order || absint( $order->get_id() ) !== absint( $item->get_order_id() ) ) {
+        return $product_name;
+    }
+
+    $display_title = html_entity_decode(
+        wp_strip_all_tags( (string) $product_name ),
+        ENT_QUOTES,
+        get_bloginfo( 'charset' ) ? get_bloginfo( 'charset' ) : 'UTF-8'
+    );
+    $suffix_values = array();
+
+    foreach ( wctf_get_modern_thankyou_order_item_variation_attributes( $item ) as $attribute ) {
+        $value = isset( $attribute['value'] ) ? (string) $attribute['value'] : '';
+
+        if ( '' === $value || wctf_modern_thankyou_title_contains_variation_value( $display_title, $value ) ) {
+            continue;
+        }
+
+        $suffix_values[] = $value;
+        $display_title  .= ' ' . $value;
+    }
+
+    return empty( $suffix_values )
+        ? $product_name
+        : $product_name . ' ' . esc_html( implode( ' ', $suffix_values ) );
+}
+
+/**
+ * Remove only the standard variation metadata moved into the Thank You title.
+ *
+ * @param array                 $formatted_meta Formatted public order-item metadata.
+ * @param WC_Order_Item_Product $item           Exact WooCommerce order line item.
+ * @return array
+ */
+function wctf_filter_modern_thankyou_order_item_meta( $formatted_meta, $item ) {
+    if (
+        ! is_array( $formatted_meta )
+        || ! $item instanceof WC_Order_Item_Product
+        || ! function_exists( 'wctf_is_fazercards_giftcard_customer_order_item' )
+        || ! wctf_is_fazercards_giftcard_customer_order_item( $item )
+        || 0 === absint( $item->get_variation_id() )
+        || ! ( wctf_get_modern_thankyou_success_order( $item->get_order_id() ) instanceof WC_Order )
+    ) {
+        return $formatted_meta;
+    }
+
+    $variation_meta_ids = array();
+
+    foreach ( wctf_get_modern_thankyou_order_item_variation_attributes( $item ) as $attribute ) {
+        if ( ! empty( $attribute['meta_id'] ) ) {
+            $variation_meta_ids[ absint( $attribute['meta_id'] ) ] = true;
+        }
+    }
+
+    foreach ( array_keys( $formatted_meta ) as $meta_id ) {
+        if ( isset( $variation_meta_ids[ absint( $meta_id ) ] ) ) {
+            unset( $formatted_meta[ $meta_id ] );
+        }
+    }
+
+    return $formatted_meta;
 }
 
 /**

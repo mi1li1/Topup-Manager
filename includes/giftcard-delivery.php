@@ -11,12 +11,6 @@ add_action(
     1
 );
 add_action(
-    'woocommerce_order_details_after_order_table_items',
-    'wctf_render_fazercards_giftcard_customer_delivery_thankyou_table_row',
-    20,
-    1
-);
-add_action(
     'woocommerce_order_item_meta_end',
     'wctf_render_fazercards_giftcard_customer_delivery_item_fallback',
     20,
@@ -617,15 +611,18 @@ function wctf_render_fazercards_giftcard_customer_delivery_box( $order ) {
 }
 
 /**
- * Render authorized Gift Card delivery as a valid row inside Order Details.
+ * Build one authorized Thank You delivery context keyed by order-item ID.
  *
- * This presentation is exclusive to the successful Order Received page. The
- * existing standalone renderer remains available for My Account View Order.
+ * The aggregate helper remains authoritative. Ready entries are published to
+ * this context only when its exact item IDs match every applicable Gift Card
+ * order item, so malformed or incomplete maps fail closed before HTML output.
  *
  * @param WC_Order $order WooCommerce order.
- * @return void
+ * @return array|false
  */
-function wctf_render_fazercards_giftcard_customer_delivery_thankyou_table_row( $order ) {
+function wctf_get_fazercards_giftcard_thankyou_delivery_context( $order ) {
+    static $contexts = array();
+
     if (
         is_admin()
         || ! $order instanceof WC_Order
@@ -633,111 +630,212 @@ function wctf_render_fazercards_giftcard_customer_delivery_thankyou_table_row( $
         || ! is_order_received_page()
         || ! function_exists( 'wctf_get_modern_thankyou_success_order' )
     ) {
-        return;
+        return false;
     }
 
-    $authorized_order = wctf_get_modern_thankyou_success_order( $order->get_id() );
-    $order_id         = absint( $order->get_id() );
+    $order_id = absint( $order->get_id() );
+
+    if ( isset( $contexts[ $order_id ] ) ) {
+        return $contexts[ $order_id ];
+    }
+
+    $authorized_order = wctf_get_modern_thankyou_success_order( $order_id );
+    $order_key        = wctf_get_fazercards_giftcard_customer_request_order_key();
 
     if (
         ! $authorized_order instanceof WC_Order
         || absint( $authorized_order->get_id() ) !== $order_id
-        || wctf_has_rendered_fazercards_giftcard_customer_delivery_box( $order_id )
+        || ! wctf_is_fazercards_giftcard_customer_authorized( $order, $order_key )
     ) {
-        return;
+        return false;
     }
 
-    $order_key = wctf_get_fazercards_giftcard_customer_request_order_key();
+    $item_ids = array();
 
-    if ( ! wctf_is_fazercards_giftcard_customer_authorized( $order, $order_key ) ) {
-        return;
+    foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
+        if ( wctf_is_fazercards_giftcard_customer_order_item( $item ) ) {
+            $item_ids[] = absint( $item_id );
+        }
     }
 
-    $state = wctf_get_fazercards_giftcard_customer_order_state( $order );
-
-    if ( empty( $state['items'] ) ) {
-        return;
+    if ( empty( $item_ids ) ) {
+        return false;
     }
 
-    wctf_has_rendered_fazercards_giftcard_customer_delivery_box( $order_id, true );
-    wctf_enqueue_fazercards_giftcard_customer_delivery_script(
-        $order,
-        $order_key,
-        $state['status'],
-        'thankyou_table'
-    );
-
-    echo '<tr class="wctf-thankyou-giftcard-row">';
-    echo '<td colspan="2" class="wctf-thankyou-giftcard-cell">';
-    echo '<div id="wctf-giftcard-delivery-' . esc_attr( $order_id ) . '" class="wctf-giftcard-delivery wctf-giftcard-delivery--thankyou" aria-live="polite">';
-    wctf_render_fazercards_giftcard_thankyou_content( $state );
-    echo '</div>';
-    echo '</td>';
-    echo '</tr>';
-
-    unset( $state );
-}
-
-/**
- * Render aggregate Thank You delivery state without exposing partial codes.
- *
- * @param array $state Authorized aggregate customer delivery state.
- * @return void
- */
-function wctf_render_fazercards_giftcard_thankyou_content( $state ) {
-    $status  = isset( $state['status'] ) ? sanitize_key( (string) $state['status'] ) : 'blocked';
-    $items   = isset( $state['items'] ) && is_array( $state['items'] ) ? $state['items'] : array();
-    $entries = array();
+    $state       = wctf_get_fazercards_giftcard_customer_order_state( $order );
+    $status      = isset( $state['status'] ) ? sanitize_key( (string) $state['status'] ) : 'blocked';
+    $items       = isset( $state['items'] ) && is_array( $state['items'] ) ? $state['items'] : array();
+    $ready_items = array();
 
     if ( ! in_array( $status, array( 'ready', 'preparing', 'blocked' ), true ) ) {
         $status = 'blocked';
     }
 
     if ( 'ready' === $status ) {
-        foreach ( $items as $item ) {
-            $item_status  = isset( $item['status'] ) ? sanitize_key( (string) $item['status'] ) : 'blocked';
-            $item_entries = isset( $item['entries'] ) && is_array( $item['entries'] )
-                ? $item['entries']
+        $expected_item_ids = array_fill_keys( $item_ids, true );
+
+        foreach ( $items as $delivery_item ) {
+            $delivery_item_id = isset( $delivery_item['item_id'] )
+                ? absint( $delivery_item['item_id'] )
+                : 0;
+            $delivery_status  = isset( $delivery_item['status'] )
+                ? sanitize_key( (string) $delivery_item['status'] )
+                : 'blocked';
+            $entries          = isset( $delivery_item['entries'] ) && is_array( $delivery_item['entries'] )
+                ? $delivery_item['entries']
                 : array();
 
-            if ( 'ready' !== $item_status || empty( $item_entries ) ) {
-                $status  = 'blocked';
-                $entries = array();
+            if (
+                0 === $delivery_item_id
+                || ! isset( $expected_item_ids[ $delivery_item_id ] )
+                || isset( $ready_items[ $delivery_item_id ] )
+                || 'ready' !== $delivery_status
+                || empty( $entries )
+            ) {
+                $status      = 'blocked';
+                $ready_items = array();
                 break;
             }
 
-            foreach ( $item_entries as $entry ) {
-                $entries[] = (string) $entry;
-            }
+            $ready_items[ $delivery_item_id ] = $entries;
         }
 
-        if ( empty( $entries ) ) {
-            $status = 'blocked';
+        if ( count( $ready_items ) !== count( $item_ids ) ) {
+            $status      = 'blocked';
+            $ready_items = array();
         }
     }
 
-    if ( 'ready' === $status ) {
-        foreach ( $entries as $entry ) {
-            echo '<div class="wctf-thankyou-code-row">';
-            echo '<code class="wctf-thankyou-code-value">' . esc_html( $entry ) . '</code>';
-            echo '<button type="button" class="wctf-thankyou-code-copy" aria-label="' . esc_attr__( '复制卡密', 'wc-topup-fields' ) . '" title="' . esc_attr__( '复制卡密', 'wc-topup-fields' ) . '">';
-            echo '<svg class="wctf-thankyou-copy-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">';
-            echo '<rect x="8" y="8" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"></rect>';
-            echo '<path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"></path>';
-            echo '</svg>';
-            echo '</button>';
-            echo '</div>';
-        }
-    } elseif ( 'preparing' === $status ) {
+    $contexts[ $order_id ] = array(
+        'order_key'     => $order_key,
+        'item_ids'      => $item_ids,
+        'first_item_id' => reset( $item_ids ),
+        'status'        => $status,
+        'ready_items'   => $ready_items,
+    );
+
+    unset( $state, $items );
+    return $contexts[ $order_id ];
+}
+
+/**
+ * Track one rendered Thank You container without blocking sibling items.
+ *
+ * @param int  $order_id WooCommerce order ID.
+ * @param int  $item_id  WooCommerce order-item ID.
+ * @param bool $mark     Whether to mark this exact container as rendered.
+ * @return bool
+ */
+function wctf_has_rendered_fazercards_giftcard_thankyou_item_container( $order_id, $item_id, $mark = false ) {
+    static $rendered_items = array();
+
+    $order_id = absint( $order_id );
+    $item_id  = absint( $item_id );
+    $key      = $order_id . ':' . $item_id;
+
+    if ( $mark && 0 < $order_id && 0 < $item_id ) {
+        $rendered_items[ $key ] = true;
+    }
+
+    return 0 < $order_id && 0 < $item_id && isset( $rendered_items[ $key ] );
+}
+
+/**
+ * Render the compact aggregate preparing or blocked state.
+ *
+ * @param string $status Aggregate delivery status.
+ * @return void
+ */
+function wctf_render_fazercards_giftcard_thankyou_status( $status ) {
+    if ( 'preparing' === $status ) {
         echo '<div class="wctf-thankyou-delivery-status is-preparing">';
         echo '<span class="wctf-thankyou-delivery-spinner" aria-hidden="true"></span>';
         echo '<span>' . esc_html__( '卡密即将发送，请等待…', 'wc-topup-fields' ) . '</span>';
         echo '</div>';
-    } else {
-        echo '<div class="wctf-thankyou-delivery-status is-blocked">';
-        echo esc_html__( '暂时无法显示卡密，请在订单页面中查看或联系网站客服。', 'wc-topup-fields' );
+        return;
+    }
+
+    echo '<div class="wctf-thankyou-delivery-status is-blocked">';
+    echo esc_html__( '暂时无法显示卡密，请在订单页面中查看或联系网站客服。', 'wc-topup-fields' );
+    echo '</div>';
+}
+
+/**
+ * Render the Thank You code-row markup shared with the AJAX implementation.
+ *
+ * @param array $entries Validated code entries for one exact order item.
+ * @return void
+ */
+function wctf_render_fazercards_giftcard_thankyou_code_rows( $entries ) {
+    foreach ( (array) $entries as $entry ) {
+        echo '<div class="wctf-thankyou-code-row">';
+        echo '<code class="wctf-thankyou-code-value">' . esc_html( (string) $entry ) . '</code>';
+        echo '<button type="button" class="wctf-thankyou-code-copy" aria-label="' . esc_attr__( '复制卡密', 'wc-topup-fields' ) . '" title="' . esc_attr__( '复制卡密', 'wc-topup-fields' ) . '">';
+        echo '<svg class="wctf-thankyou-copy-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">';
+        echo '<rect x="8" y="8" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"></rect>';
+        echo '<path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"></path>';
+        echo '</svg>';
+        echo '</button>';
         echo '</div>';
     }
+}
+
+/**
+ * Render delivery beneath one exact Gift Card order line on Thank You only.
+ *
+ * @param int                   $item_id WooCommerce order-item ID.
+ * @param WC_Order_Item_Product $item    Exact WooCommerce order line item.
+ * @param WC_Order              $order   WooCommerce order.
+ * @return void
+ */
+function wctf_render_fazercards_giftcard_thankyou_item_container( $item_id, $item, $order ) {
+    if (
+        ! $item instanceof WC_Order_Item_Product
+        || ! $order instanceof WC_Order
+        || ! wctf_is_fazercards_giftcard_customer_order_item( $item )
+    ) {
+        return;
+    }
+
+    $order_id = absint( $order->get_id() );
+    $item_id  = absint( $item_id );
+    $owned    = $order->get_item( $item_id );
+    $context  = wctf_get_fazercards_giftcard_thankyou_delivery_context( $order );
+
+    if (
+        0 === $item_id
+        || ! $owned instanceof WC_Order_Item_Product
+        || absint( $owned->get_id() ) !== absint( $item->get_id() )
+        || ! is_array( $context )
+        || ! in_array( $item_id, $context['item_ids'], true )
+        || wctf_has_rendered_fazercards_giftcard_thankyou_item_container( $order_id, $item_id )
+    ) {
+        return;
+    }
+
+    wctf_has_rendered_fazercards_giftcard_thankyou_item_container( $order_id, $item_id, true );
+
+    if ( ! wctf_has_rendered_fazercards_giftcard_customer_delivery_box( $order_id ) ) {
+        wctf_has_rendered_fazercards_giftcard_customer_delivery_box( $order_id, true );
+        wctf_enqueue_fazercards_giftcard_customer_delivery_script(
+            $order,
+            $context['order_key'],
+            $context['status'],
+            'thankyou_items'
+        );
+    }
+
+    echo '<div id="wctf-giftcard-delivery-item-' . esc_attr( $order_id ) . '-' . esc_attr( $item_id ) . '"';
+    echo ' class="wctf-giftcard-delivery-item-container"';
+    echo ' data-order-item-id="' . esc_attr( $item_id ) . '" aria-live="polite">';
+
+    if ( 'ready' === $context['status'] && isset( $context['ready_items'][ $item_id ] ) ) {
+        wctf_render_fazercards_giftcard_thankyou_code_rows( $context['ready_items'][ $item_id ] );
+    } elseif ( absint( $context['first_item_id'] ) === $item_id ) {
+        wctf_render_fazercards_giftcard_thankyou_status( $context['status'] );
+    }
+
+    echo '</div>';
 }
 
 /**
@@ -786,8 +884,6 @@ function wctf_has_rendered_fazercards_giftcard_customer_delivery_box( $order_id,
  * @return void
  */
 function wctf_render_fazercards_giftcard_customer_delivery_item_fallback( $item_id, $item, $order, $plain_text ) {
-    unset( $item_id );
-
     if (
         $plain_text
         || is_admin()
@@ -798,6 +894,11 @@ function wctf_render_fazercards_giftcard_customer_delivery_item_fallback( $item_
         || ! function_exists( 'is_wc_endpoint_url' )
         || ( ! is_order_received_page() && ! is_wc_endpoint_url( 'view-order' ) )
     ) {
+        return;
+    }
+
+    if ( is_order_received_page() ) {
+        wctf_render_fazercards_giftcard_thankyou_item_container( $item_id, $item, $order );
         return;
     }
 
@@ -4012,7 +4113,7 @@ function wctf_render_fazercards_giftcard_customer_items( $items ) {
  * @param WC_Order $order          WooCommerce order.
  * @param string   $order_key      Valid request order key, if required.
  * @param string   $initial_status Current aggregate display status.
- * @param string   $presentation   standalone or thankyou_table.
+ * @param string   $presentation   standalone or thankyou_items.
  * @return void
  */
 function wctf_enqueue_fazercards_giftcard_customer_delivery_script( $order, $order_key, $initial_status, $presentation = 'standalone' ) {
@@ -4026,7 +4127,7 @@ function wctf_enqueue_fazercards_giftcard_customer_delivery_script( $order, $ord
         || ! is_user_logged_in()
         || $customer_id !== get_current_user_id();
     $nonce_action = wctf_get_fazercards_giftcard_customer_nonce_action( $order, $order_key );
-    $presentation = 'thankyou_table' === $presentation ? 'thankyou_table' : 'standalone';
+    $presentation = 'thankyou_items' === $presentation ? 'thankyou_items' : 'standalone';
 
     if ( '' === $nonce_action ) {
         return;
@@ -4050,7 +4151,8 @@ function wctf_enqueue_fazercards_giftcard_customer_delivery_script( $order, $ord
             'nonce'        => wp_create_nonce( $nonce_action ),
             'orderId'      => $order_id,
             'orderKey'     => $key_required ? (string) $order_key : '',
-            'containerId'  => 'wctf-giftcard-delivery-' . $order_id,
+            'containerId'  => 'standalone' === $presentation ? 'wctf-giftcard-delivery-' . $order_id : '',
+            'itemContainerPrefix' => 'wctf-giftcard-delivery-item-' . $order_id . '-',
             'initialStatus' => sanitize_key( $initial_status ),
             'presentation' => $presentation,
             'earlyPollInterval' => 2000,
