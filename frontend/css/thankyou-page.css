@@ -830,23 +830,47 @@
     text-decoration: none;
 }
 
-.wctf-modern-thankyou-page .woocommerce-order-details .wctf-thankyou-giftcard-cell {
+.wctf-modern-thankyou-page .woocommerce-order-details .product-name .wctf-giftcard-delivery-item-container {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin: 10px 0 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .wctf-giftcard-delivery-row[hidden],
+.wctf-modern-thankyou-page .woocommerce-order-details .wctf-giftcard-delivery-row.is-empty {
+    display: none;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .wctf-giftcard-delivery-cell {
+    box-sizing: border-box;
+    width: 100%;
     padding: 12px 0 10px;
     border-bottom: 1px solid #e6ebf1;
 }
 
-.wctf-modern-thankyou-page .woocommerce-order-details .wctf-giftcard-delivery--thankyou {
+.wctf-modern-thankyou-page .woocommerce-order-details .wctf-giftcard-delivery-row .wctf-giftcard-delivery-item-container {
     display: block;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     margin: 0;
     padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
+}
+
+.wctf-modern-thankyou-page .woocommerce-order-details .product-name .wctf-giftcard-delivery-item-container:empty {
+    display: none;
+    margin: 0;
 }
 
 .wctf-modern-thankyou-page .wctf-thankyou-code-row {
     display: flex;
+    width: 100%;
+    max-width: 100%;
     min-height: 50px;
     box-sizing: border-box;
     align-items: center;
@@ -1135,14 +1159,8 @@
         text-align: end;
     }
 
-    .wctf-modern-thankyou-page .woocommerce-order-details .wctf-thankyou-giftcard-cell {
+    .wctf-modern-thankyou-page .woocommerce-order-details .woocommerce-table--order-details .wctf-giftcard-delivery-cell {
         padding: 10px 0 8px;
-    }
-
-    .wctf-modern-thankyou-page .woocommerce-order-details .wctf-giftcard-delivery--thankyou {
-        margin: 0;
-        padding: 0;
-        border-radius: 0;
     }
 
     .wctf-modern-thankyou-page .wctf-thankyou-code-row {

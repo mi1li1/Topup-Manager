@@ -88,49 +88,188 @@
         return icon;
     }
 
-    function renderThankyouItems( container, items, aggregateStatus ) {
-        var status = text( aggregateStatus );
-        var entries = [];
+    function orderItemId( value ) {
+        value = text( value );
 
-        container.replaceChildren();
+        return /^[1-9][0-9]*$/.test( value ) ? value : '';
+    }
 
-        if ( 'ready' === status && Array.isArray( items ) && items.length ) {
-            items.forEach( function( item ) {
-                var itemEntries = item && Array.isArray( item.entries ) ? item.entries : [];
+    function thankyouContainers() {
+        var prefix = text( config.itemContainerPrefix );
 
-                if ( 'ready' !== text( item && item.status ) || ! itemEntries.length ) {
-                    status = 'blocked';
-                    entries = [];
-                    return;
-                }
+        return Array.prototype.slice.call(
+            document.querySelectorAll( '.wctf-giftcard-delivery-item-container[data-order-item-id]' )
+        ).filter( function( container ) {
+            var itemId = orderItemId( container.getAttribute( 'data-order-item-id' ) );
 
-                itemEntries.forEach( function( entry ) {
-                    entries.push( entry );
-                } );
-            } );
+            return itemId && container.id === prefix + itemId;
+        } );
+    }
 
-            if ( ! entries.length ) {
-                status = 'blocked';
-            }
-        } else if ( 'preparing' !== status ) {
-            status = 'blocked';
+    function isThankyouProductRow( row ) {
+        return row
+            && 'TR' === row.tagName
+            && (
+                row.classList.contains( 'woocommerce-table__line-item' )
+                || row.classList.contains( 'order_item' )
+            );
+    }
+
+    function visibleColumnCount( row ) {
+        if ( ! row || ! row.cells ) {
+            return 0;
         }
 
-        if ( 'ready' === status ) {
-            entries.forEach( function( entry ) {
-                var row = element( 'div', 'wctf-thankyou-code-row' );
-                var value = element( 'code', 'wctf-thankyou-code-value', entry );
-                var button = element( 'button', 'wctf-thankyou-code-copy' );
+        return Array.prototype.reduce.call( row.cells, function( count, cell ) {
+            var style;
 
-                button.type = 'button';
-                button.setAttribute( 'aria-label', config.labels.copyLabel );
-                button.setAttribute( 'title', config.labels.copyLabel );
-                button.appendChild( copyIcon() );
-                row.appendChild( value );
-                row.appendChild( button );
-                container.appendChild( row );
+            if ( cell.hidden ) {
+                return count;
+            }
+
+            if ( window.getComputedStyle ) {
+                style = window.getComputedStyle( cell );
+
+                if ( style && 'none' === style.display ) {
+                    return count;
+                }
+            }
+
+            return count + Math.max( 1, Number( cell.colSpan ) || 1 );
+        }, 0 );
+    }
+
+    function thankyouTableColumnCount( table, productRow ) {
+        var count = visibleColumnCount( productRow );
+
+        if ( table && table.tHead && table.tHead.rows ) {
+            Array.prototype.forEach.call( table.tHead.rows, function( headerRow ) {
+                count = Math.max( count, visibleColumnCount( headerRow ) );
             } );
-        } else if ( 'preparing' === status ) {
+        }
+
+        return Math.max( 2, count );
+    }
+
+    function syncDeliveryRowVisibility( container ) {
+        var row = container && container.closest
+            ? container.closest( 'tr.wctf-giftcard-delivery-row' )
+            : null;
+        var hasContent;
+
+        if ( ! row ) {
+            return;
+        }
+
+        hasContent = Boolean(
+            container.querySelector( '.wctf-thankyou-code-row, .wctf-thankyou-delivery-status' )
+        );
+        row.hidden = ! hasContent;
+        row.classList.toggle( 'is-empty', ! hasContent );
+    }
+
+    function promoteThankyouContainer( container ) {
+        var itemId = orderItemId( container.getAttribute( 'data-order-item-id' ) );
+        var orderId = orderItemId( config.orderId );
+        var rowId = orderId && itemId
+            ? 'wctf-giftcard-delivery-row-' + orderId + '-' + itemId
+            : '';
+        var row = rowId ? document.getElementById( rowId ) : null;
+        var productRow;
+        var table;
+        var cell;
+
+        if ( ! rowId ) {
+            return;
+        }
+
+        if ( row ) {
+            if (
+                'TR' !== row.tagName
+                || ! row.classList.contains( 'wctf-giftcard-delivery-row' )
+                || itemId !== orderItemId( row.getAttribute( 'data-order-item-id' ) )
+            ) {
+                return;
+            }
+
+            productRow = isThankyouProductRow( row.wctfGiftCardProductRow )
+                && row.wctfGiftCardProductRow.parentNode === row.parentNode
+                ? row.wctfGiftCardProductRow
+                : row.previousElementSibling;
+            table = row.closest( 'table.woocommerce-table--order-details' );
+            cell = 1 === row.cells.length
+                && row.cells[ 0 ].classList.contains( 'wctf-giftcard-delivery-cell' )
+                ? row.cells[ 0 ]
+                : null;
+
+            if (
+                ! cell
+                || ! table
+                || ! isThankyouProductRow( productRow )
+                || productRow.parentNode !== row.parentNode
+            ) {
+                return;
+            }
+
+            row.wctfGiftCardProductRow = productRow;
+            cell.colSpan = thankyouTableColumnCount( table, productRow );
+
+            if ( row.previousElementSibling !== productRow ) {
+                productRow.parentNode.insertBefore( row, productRow.nextSibling );
+            }
+
+            if ( container.parentNode !== cell ) {
+                cell.appendChild( container );
+            }
+
+            syncDeliveryRowVisibility( container );
+            return;
+        }
+
+        productRow = container.closest ? container.closest( 'tr' ) : null;
+
+        if ( ! isThankyouProductRow( productRow ) ) {
+            return;
+        }
+
+        table = productRow.closest( 'table.woocommerce-table--order-details' );
+
+        if ( ! table || ! productRow.parentNode ) {
+            return;
+        }
+
+        row = element( 'tr', 'wctf-giftcard-delivery-row' );
+        row.id = rowId;
+        row.setAttribute( 'data-order-item-id', itemId );
+        row.wctfGiftCardProductRow = productRow;
+
+        cell = element( 'td', 'wctf-giftcard-delivery-cell' );
+        cell.colSpan = thankyouTableColumnCount( table, productRow );
+        row.appendChild( cell );
+        productRow.parentNode.insertBefore( row, productRow.nextSibling );
+        cell.appendChild( container );
+        syncDeliveryRowVisibility( container );
+    }
+
+    function promoteThankyouContainers() {
+        var containers = thankyouContainers();
+        var isModernThankyou = document.body
+            && document.body.classList.contains( 'wctf-modern-thankyou-page' );
+
+        if ( ! isModernThankyou || 'thankyou_items' !== text( config.presentation ) ) {
+            return containers;
+        }
+
+        containers.forEach( function( container ) {
+            promoteThankyouContainer( container );
+            syncDeliveryRowVisibility( container );
+        } );
+
+        return containers;
+    }
+
+    function appendThankyouStatus( container, status ) {
+        if ( 'preparing' === status ) {
             var preparing = element( 'div', 'wctf-thankyou-delivery-status is-preparing' );
             var spinner = element( 'span', 'wctf-thankyou-delivery-spinner' );
 
@@ -138,16 +277,105 @@
             preparing.appendChild( spinner );
             preparing.appendChild( element( 'span', '', config.labels.thankyouPreparing ) );
             container.appendChild( preparing );
-        } else {
-            container.appendChild(
-                element( 'div', 'wctf-thankyou-delivery-status is-blocked', config.labels.thankyouBlocked )
-            );
+            syncDeliveryRowVisibility( container );
+            return;
         }
+
+        container.appendChild(
+            element( 'div', 'wctf-thankyou-delivery-status is-blocked', config.labels.thankyouBlocked )
+        );
+        syncDeliveryRowVisibility( container );
+    }
+
+    function appendThankyouEntries( container, entries ) {
+        entries.forEach( function( entry ) {
+            var row = element( 'div', 'wctf-thankyou-code-row' );
+            var value = element( 'code', 'wctf-thankyou-code-value', entry );
+            var button = element( 'button', 'wctf-thankyou-code-copy' );
+
+            button.type = 'button';
+            button.setAttribute( 'aria-label', config.labels.copyLabel );
+            button.setAttribute( 'title', config.labels.copyLabel );
+            button.appendChild( copyIcon() );
+            row.appendChild( value );
+            row.appendChild( button );
+            container.appendChild( row );
+        } );
+
+        syncDeliveryRowVisibility( container );
+    }
+
+    function renderThankyouItems( items, aggregateStatus ) {
+        var containers = thankyouContainers();
+        var firstContainer = containers.length ? containers[ 0 ] : null;
+        var status = text( aggregateStatus );
+        var containersByItemId = {};
+        var entriesByItemId = {};
+        var valid = true;
+
+        containers.forEach( function( container ) {
+            container.replaceChildren();
+            syncDeliveryRowVisibility( container );
+        } );
+
+        if ( ! firstContainer ) {
+            return;
+        }
+
+        if ( 'ready' !== status ) {
+            appendThankyouStatus( firstContainer, 'preparing' === status ? 'preparing' : 'blocked' );
+            return;
+        }
+
+        containers.forEach( function( container ) {
+            var itemId = orderItemId( container.getAttribute( 'data-order-item-id' ) );
+
+            if ( ! itemId || containersByItemId[ itemId ] ) {
+                valid = false;
+                return;
+            }
+
+            containersByItemId[ itemId ] = container;
+        } );
+
+        if ( ! Array.isArray( items ) || ! items.length ) {
+            valid = false;
+        } else {
+            items.forEach( function( item ) {
+                var itemId = orderItemId( item && item.item_id );
+                var entries = item && Array.isArray( item.entries ) ? item.entries : [];
+
+                if (
+                    ! itemId
+                    || 'ready' !== text( item && item.status )
+                    || ! entries.length
+                    || ! containersByItemId[ itemId ]
+                    || entriesByItemId[ itemId ]
+                ) {
+                    valid = false;
+                    return;
+                }
+
+                entriesByItemId[ itemId ] = entries;
+            } );
+        }
+
+        if (
+            ! valid
+            || Object.keys( containersByItemId ).length !== Object.keys( entriesByItemId ).length
+        ) {
+            appendThankyouStatus( firstContainer, 'blocked' );
+            return;
+        }
+
+        Object.keys( entriesByItemId ).forEach( function( itemId ) {
+            appendThankyouEntries( containersByItemId[ itemId ], entriesByItemId[ itemId ] );
+        } );
     }
 
     function renderItems( container, items, aggregateStatus ) {
-        if ( 'thankyou_table' === text( config.presentation ) ) {
-            renderThankyouItems( container, items, aggregateStatus );
+        if ( 'thankyou_items' === text( config.presentation ) ) {
+            renderThankyouItems( items, aggregateStatus );
             return;
         }
 
@@ -325,6 +553,8 @@
 
     function start() {
         var container = document.getElementById( text( config.containerId ) );
+        var isThankyouItems = 'thankyou_items' === text( config.presentation );
+        var copyContainers = isThankyouItems ? promoteThankyouContainers() : ( container ? [ container ] : [] );
         var startedAt = Date.now();
         var stopped = 'preparing' !== text( config.initialStatus );
         var interval = Math.max( 5000, Number( config.pollInterval ) || 5000 );
@@ -333,18 +563,25 @@
         var maxTime = Math.min( 120000, Math.max( interval, Number( config.maxPollTime ) || 120000 ) );
         var timer = null;
 
-        if ( ! container ) {
+        if ( ! copyContainers.length ) {
             return;
         }
 
-        container.addEventListener( 'click', function( event ) {
-            var button = event.target.closest
-                ? event.target.closest( '.wctf-giftcard-delivery-copy, .wctf-thankyou-code-copy' )
-                : null;
-
-            if ( button && container.contains( button ) ) {
-                copyVisibleValue( button );
+        copyContainers.forEach( function( copyContainer ) {
+            if ( copyContainer.wctfGiftCardDeliveryClickBound ) {
+                return;
             }
+
+            copyContainer.wctfGiftCardDeliveryClickBound = true;
+            copyContainer.addEventListener( 'click', function( event ) {
+                var button = event.target.closest
+                    ? event.target.closest( '.wctf-giftcard-delivery-copy, .wctf-thankyou-code-copy' )
+                    : null;
+
+                if ( button && copyContainer.contains( button ) ) {
+                    copyVisibleValue( button );
+                }
+            } );
         } );
 
         function stop() {
